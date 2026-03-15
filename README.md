@@ -1,6 +1,6 @@
 # NSE/BSE Portfolio Optimizer Terminal
 
-A Bloomberg-style terminal UI for Indian equity portfolio analysis and prediction — built with Python and Streamlit.
+A Bloomberg-style terminal UI for Indian equity portfolio analysis and prediction built with Python and Streamlit.
 
 ---
 
