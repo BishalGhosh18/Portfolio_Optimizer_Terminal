@@ -307,20 +307,31 @@ def fetch_ohlcv(ticker: str, period: str = "1y") -> pd.DataFrame:
 
 
 def fetch_live_quote(ticker: str) -> dict:
-    """Return latest price + metadata for a single ticker."""
+    """Return latest live price + metadata using yfinance fast_info."""
     try:
         t    = yf.Ticker(ticker)
         info = t.fast_info
-        hist = t.history(period="2d", interval="1d", auto_adjust=True)
-        if hist.empty:
-            return {}
-        last_close = float(hist["Close"].iloc[-1])
-        prev_close = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else last_close
-        change     = last_close - prev_close
-        change_pct = (change / prev_close) * 100 if prev_close else 0.0
+
+        last_price = getattr(info, "last_price", None)
+        prev_close = getattr(info, "previous_close", None)
+
+        # Fallback to history if fast_info is empty
+        if last_price is None:
+            hist = t.history(period="5d", interval="1d", auto_adjust=True)
+            if hist.empty:
+                return {}
+            closes     = hist["Close"].dropna()
+            last_price = float(closes.iloc[-1])
+            prev_close = float(closes.iloc[-2]) if len(closes) >= 2 else last_price
+
+        last_price = float(last_price)
+        prev_close = float(prev_close) if prev_close is not None else last_price
+        change     = last_price - prev_close
+        change_pct = (change / prev_close * 100) if prev_close else 0.0
+
         return {
             "ticker":     ticker,
-            "last_price": round(last_close, 2),
+            "price":      round(last_price, 2),
             "prev_close": round(prev_close, 2),
             "change":     round(change, 2),
             "change_pct": round(change_pct, 2),
@@ -336,10 +347,10 @@ def fetch_live_quote(ticker: str) -> dict:
 def fetch_all_live_quotes(
     company_names: list[str],
     exchange: str = "NSE",
-) -> pd.DataFrame:
-    """Fetch live quotes for a list of company names."""
+) -> dict:
+    """Fetch live quotes for a list of company names. Returns {company_name: quote_dict}."""
     universe = get_stock_universe(exchange)
-    rows = []
+    result = {}
     for name in company_names:
         ticker = universe.get(name)
         if not ticker:
@@ -349,8 +360,8 @@ def fetch_all_live_quotes(
             q["company"]  = name
             q["sector"]   = SECTOR_MAP.get(name, "Other")
             q["cap_tier"] = MARKET_CAP_TIER.get(name, "—")
-            rows.append(q)
-    return pd.DataFrame(rows)
+            result[name] = q
+    return result
 
 
 def fetch_benchmark(period: str = "1y") -> pd.DataFrame:

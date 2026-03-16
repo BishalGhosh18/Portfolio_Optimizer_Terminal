@@ -1,33 +1,41 @@
-# NSE/BSE Portfolio Optimizer Terminal
+# NSE/BSE Portfolio Optimizer
 
-A Bloomberg-style terminal UI for Indian equity portfolio analysis and prediction built with Python and Streamlit.
+A Groww-style portfolio analytics dashboard for Indian equities — built with Python and Streamlit.
+
+Live price feed · Risk analysis · Portfolio optimisation · Price prediction
 
 ---
 
 ## What This Tool Does
 
-This tool lets you pick any combination of stocks listed on the **NSE or BSE**, analyse their individual and combined risk, optimise portfolio weights across 5 strategies, and forecast future prices using multiple ML/statistical models — all inside a dark terminal-themed interface that auto-refreshes live data every 5 seconds.
+Pick any combination of stocks listed on the **NSE or BSE**, analyse their individual and combined risk, optimise portfolio weights across 5 strategies, and forecast future prices using multiple ML/statistical models — all inside a clean, modern UI that auto-refreshes live data every 5 seconds.
 
 ---
 
 ## Features
 
-| Feature | Details |
-|---|---|
-| **Live Data Feed** | Real-time prices, 52-week high/low, volume, market cap — refreshes every 5 seconds |
-| **130+ Stocks** | Full NSE & BSE universe: Tata, Reliance, Adani, HDFC, Infosys, and 100+ more across all sectors |
-| **Preset Baskets** | One-click presets: Tata Group, Top IT, Top Banking, Top Auto, Pharma, Energy |
-| **Interactive Charts** | Candlestick, Volume, RSI, MACD, Bollinger Bands |
-| **Risk Analytics** | VaR (Historical, Parametric), CVaR/ES, Sharpe, Sortino, Calmar, Beta, Max Drawdown |
-| **Portfolio Optimisation** | 5 strategies: Max Sharpe, Min Volatility, Risk Parity, Max Diversification, Equal Weight |
-| **Risk Scorecard** | Composite risk score (0–100) with radar chart for each stock |
-| **Price Prediction** | 5 models: ARIMA, Linear Regression, Random Forest, Monte Carlo GBM, EMA Trend |
+| | Feature | Details |
+|---|---|---|
+| 📊 | **Live Market Feed** | Real-time prices, 52-week high/low, volume, market cap — auto-refreshes every 5 seconds |
+| 📉 | **Interactive Charts** | Candlestick, Volume, RSI, MACD, Bollinger Bands, normalised performance comparison |
+| ⚠️ | **Risk Analytics** | VaR (Historical, Parametric), CVaR/ES, Sharpe, Sortino, Calmar, Beta, Max Drawdown, Rolling Volatility |
+| ⚙️ | **Portfolio Optimisation** | 5 strategies: Max Sharpe, Min Volatility, Risk Parity, Max Diversification, Equal Weight |
+| 🎯 | **Risk Scorecard** | Composite risk score (0–100) per stock with radar chart |
+| 🔮 | **Price Prediction** | 5 models: ARIMA, Linear Regression, Random Forest, Monte Carlo GBM, EMA Trend |
+| 🏢 | **130+ Stocks** | Full NSE & BSE universe across all major sectors |
+| 🎛️ | **Preset Baskets** | One-click presets: Tata Group, Top IT, Top Banking, Top Auto, Pharma, Energy |
 
 ---
 
-## Screenshots
+## UI
 
-> Terminal dark theme — green on black, JetBrains Mono font, live ticker strip at the top
+Clean, modern design inspired by Groww:
+- White card layout with soft shadows
+- Green `#00D09C` for gains · Red `#FF5370` for losses
+- Purple gradient `#5367FF → #8B5CF6` for accents and buttons
+- Dark navy `#1B2236` sidebar
+- Live blinking dot indicator
+- Scrollable ticker strip at the top
 
 ---
 
@@ -35,69 +43,67 @@ This tool lets you pick any combination of stocks listed on the **NSE or BSE**, 
 
 ```
 portfolio-optimizer/
-├── app.py            # Streamlit UI — terminal theme, all 6 tabs, auto-refresh
-├── data_fetcher.py   # yfinance data layer — stock universe, live quotes, OHLCV
-├── risk_engine.py    # Risk metrics — VaR, CVaR, Sharpe, Beta, drawdown, scorecard
-├── optimizer.py      # Markowitz optimisation — 5 strategies + efficient frontier
-├── predictor.py      # Prediction engine — ARIMA, LinReg, RF, Monte Carlo, EMA
-├── requirements.txt  # Python dependencies
-└── run.sh            # One-command launcher (conda/venv auto-detect)
+├── app.py            — Streamlit UI (Groww theme, 6 tabs, auto-refresh)
+├── data_fetcher.py   — yfinance data layer, 130+ stock universe, live quotes
+├── risk_engine.py    — Risk metrics: VaR, CVaR, Sharpe, Beta, drawdown, scorecard
+├── optimizer.py      — Markowitz optimisation, 5 strategies
+├── predictor.py      — Price prediction: ARIMA, LinReg, RF, Monte Carlo, EMA
+├── requirements.txt  — Python dependencies
+└── run.sh            — One-command launcher
 ```
 
 ### Module Breakdown
 
 **`data_fetcher.py`**
-- Maintains a dictionary of 130+ NSE/BSE stocks with their Yahoo Finance tickers
-- `get_stock_universe(exchange)` — returns the full name→ticker map
+- `get_stock_universe(exchange)` — returns full `{company_name: ticker}` map for NSE or BSE
 - `fetch_price_data(tickers, period)` — downloads adjusted close prices via yfinance
-- `fetch_ohlcv(ticker, period)` — OHLCV data for candlestick charts
-- `fetch_live_quote(ticker)` — current price, day change, volume, 52w high/low, market cap
-- `fetch_all_live_quotes(names, exchange)` — batch live quotes for the ticker strip
+- `fetch_ohlcv(ticker, period)` — OHLCV bars for candlestick charts
+- `fetch_live_quote(ticker)` — current price, day change %, volume, 52w high/low, market cap using `fast_info`
+- `fetch_all_live_quotes(names, exchange)` — batch live quotes returned as `{company_name: quote_dict}`
 - `fetch_benchmark(period)` — Nifty 50 and Sensex returns for beta calculation
 
 **`risk_engine.py`**
 - `annualised_return / annualised_volatility` — core return/vol statistics
 - `sharpe_ratio / sortino_ratio / calmar_ratio` — risk-adjusted return metrics
-- `historical_var / parametric_var / cvar` — Value-at-Risk at configurable confidence levels
-- `max_drawdown / drawdown_series` — peak-to-trough drawdown analysis
+- `historical_var / parametric_var / cvar` — Value-at-Risk at 95% and 99%
+- `max_drawdown / drawdown_series` — peak-to-trough drawdown
 - `beta(returns, benchmark_returns)` — market sensitivity vs Nifty 50 / Sensex
 - `correlation_matrix / rolling_volatility` — portfolio-level diagnostics
 - `risk_scorecard(returns, benchmark_returns)` — composite 0–100 risk score per stock
 
 **`optimizer.py`**
-- `max_sharpe_weights(returns)` — SLSQP optimisation maximising Sharpe ratio
-- `min_volatility_weights(returns)` — minimum portfolio variance
-- `risk_parity_weights(returns)` — equal risk contribution from each asset
-- `max_diversification_weights(returns)` — maximises diversification ratio
-- `equal_weight(returns)` — uniform 1/N baseline
-- `all_strategies_summary(returns)` — runs all 5 strategies and returns a comparison table
-- `efficient_frontier_monte_carlo(returns, n)` — random portfolio simulation for frontier plot
+- `max_sharpe_weights` — SLSQP optimisation maximising Sharpe ratio
+- `min_volatility_weights` — minimum portfolio variance
+- `risk_parity_weights` — equal risk contribution from each asset
+- `max_diversification_weights` — maximises diversification ratio
+- `equal_weight` — uniform 1/N baseline
+- `all_strategies_summary` — runs all 5 strategies and returns a comparison table
 
 **`predictor.py`**
-- `arima_forecast(prices, horizon)` — ARIMA(p,d,q) fitted via auto-order selection
-- `linear_regression_forecast(prices, horizon)` — Ridge regression with lag features, MA, RSI, MACD
-- `random_forest_forecast(prices, horizon)` — Random Forest with walk-forward validation
-- `monte_carlo_forecast(prices, horizon, simulations)` — Geometric Brownian Motion, 1000 paths
-- `ema_forecast(prices, horizon)` — Exponential Moving Average trend extrapolation
-- `compute_technical_indicators(ohlcv)` — adds MA(20/50/200), MACD, RSI, Bollinger Bands, ATR
+- `arima_forecast` — ARIMA(p,d,q) with auto-order selection; confidence intervals
+- `linear_regression_forecast` — Ridge regression with lag features, MA, RSI, MACD; walk-forward validation
+- `random_forest_forecast` — Random Forest ensemble; walk-forward validation
+- `monte_carlo_forecast` — Geometric Brownian Motion (1000 paths), median + confidence band
+- `ema_forecast` — EMA trend extrapolation with residual-based confidence band
+- `compute_technical_indicators` — MA(20/50/200), EMA(12/26), MACD, RSI(14), Bollinger Bands, ATR
 
 ---
 
 ## Installation
 
-**Requirements:** Python 3.10 or 3.11, internet connection (live data via Yahoo Finance)
+**Requirements:** Python 3.10 or 3.11 · Internet connection (data via Yahoo Finance)
 
-> Python 3.12 may have CVXPY/NumPy conflicts — 3.11 is recommended.
+> Python 3.12 may have CVXPY/NumPy conflicts — Python 3.11 is recommended.
 
 ### Option A — One-command launcher
 
 ```bash
-git clone https://github.com/your-username/portfolio-optimizer
-cd portfolio-optimizer
+git clone https://github.com/BishalGhosh18/Portfolio_Optimizer_Terminal
+cd Portfolio_Optimizer_Terminal
 bash run.sh
 ```
 
-The script auto-detects conda or venv, installs all dependencies, and opens the app.
+The script auto-detects conda or venv, installs all dependencies, and opens the app at [http://localhost:8501](http://localhost:8501).
 
 ### Option B — Conda (recommended)
 
@@ -117,39 +123,36 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open [http://localhost:8501](http://localhost:8501) in your browser.
-
 ---
 
 ## How to Use
 
-### Step 1 — Select stocks
+### 1 — Select stocks
 - Choose **NSE** or **BSE** in the sidebar
-- Use a **preset basket** (Tata Group, Top IT, Top Banking, Top Auto, Pharma, Energy) or
-- Search and select any companies from the full list
+- Pick a **preset basket** (Tata Group, Top IT, Top Banking, Top Auto, Pharma, Energy) or search any company
+- Changing the selection automatically re-fetches data
 
-### Step 2 — Set parameters
-- **Lookback period** — 6 months to 5 years of historical data
+### 2 — Set parameters
+- **Lookback period** — 6 months to 5 years
+- **Optimization strategy** — choose one of the 5 strategies
 - **Risk-free rate** — defaults to 6.5% (Indian 10-yr G-Sec)
 
-### Step 3 — Run analysis
-Click **► RUN ANALYSIS** to load data and compute all metrics.
+### 3 — Run analysis
+Click **▶ Run Analysis** to load historical price data and compute all metrics.
 
-### Step 4 — Navigate tabs
+### 4 — Navigate tabs
 
-| Tab | What you see |
+| Tab | Contents |
 |---|---|
-| **LIVE FEED** | Real-time prices for all selected stocks + scrolling ticker strip |
-| **CHARTS** | Candlestick, volume, RSI, MACD, Bollinger Bands for any selected stock |
-| **RISK** | VaR, CVaR, drawdown chart, correlation matrix, rolling volatility |
-| **OPTIMIZER** | Portfolio weights & performance across all 5 strategies |
-| **SCORECARD** | Per-stock composite risk score with radar chart |
-| **PREDICT** | Future price forecast using your chosen model and horizon |
+| 📊 **Live Feed** | Live stock cards with price, change %, 52w high/low, volume, market cap · Market breadth (gainers/losers) · Benchmark chart |
+| 📉 **Charts** | Candlestick with MA overlays + Bollinger Bands · Volume · RSI · MACD · Normalised performance · Correlation matrix |
+| ⚠️ **Risk** | Per-stock risk table (Return, Volatility, Sharpe, Max Drawdown, VaR, CVaR) · Rolling volatility · Drawdown chart |
+| ⚙️ **Optimizer** | Portfolio weights pie & bar chart · Key portfolio metrics · Strategy comparison table |
+| 🎯 **Scorecard** | Risk score cards per stock · Radar chart · Full metrics table |
+| 🔮 **Predict** | Forecast chart with confidence bands · Scenario table (1W / 1M / horizon) · Model accuracy metrics |
 
-### Step 5 — Run a prediction
-- In the sidebar, select a **stock**, **model**, and **forecast horizon** (days)
-- Click **► RUN PREDICTION**
-- Go to the **PREDICT** tab to see the forecast chart with confidence bands
+### 5 — Run a prediction
+Select a **stock**, **model**, and **forecast horizon** in the sidebar, then click **🔮 Run Prediction**.
 
 ---
 
@@ -157,26 +160,16 @@ Click **► RUN ANALYSIS** to load data and compute all metrics.
 
 | Sector | Example Stocks |
 |---|---|
-| Tata Group | TCS, Tata Motors, Tata Steel, Tata Power, Titan |
-| Banking & Finance | HDFC Bank, ICICI Bank, SBI, Kotak, Bajaj Finance |
+| Tata Group | TCS, Tata Motors, Tata Steel, Tata Power, Titan, Trent, Voltas |
+| Banking & Finance | HDFC Bank, ICICI Bank, SBI, Kotak, Axis, Bajaj Finance |
 | IT & Technology | Infosys, Wipro, HCL Tech, Tech Mahindra |
-| Pharma | Sun Pharma, Dr. Reddy's, Cipla, Divi's |
+| Pharma | Sun Pharma, Dr. Reddy's, Cipla, Divi's, Lupin |
 | Auto | Maruti, M&M, Hero MotoCorp, Bajaj Auto, Eicher |
-| Energy | Reliance, ONGC, Adani Green, Tata Power, NTPC |
+| Energy | Reliance, ONGC, Adani Green, NTPC, Power Grid |
 | FMCG | HUL, ITC, Nestle, Britannia, Dabur |
+| Metals & Mining | JSW Steel, Hindalco, Vedanta, SAIL |
 | Infrastructure | L&T, Adani Ports, DLF |
-| Metals | JSW Steel, Hindalco, Vedanta, SAIL |
-| Telecom | Bharti Airtel, Vodafone Idea |
-
----
-
-## Technical Notes
-
-- **Data source:** Yahoo Finance via `yfinance`. NSE/BSE prices are delayed ~15 minutes.
-- **NumPy version:** CVXPY requires `numpy < 2.0`. The `requirements.txt` pins this.
-- **Auto-refresh:** Live data refreshes every 5 seconds using `streamlit-autorefresh`.
-- **Plotly compatibility:** Uses `add_shape` + `add_annotation` instead of `add_vline` to avoid a bug in Plotly 6.x with timezone-aware timestamps.
-- **Walk-forward forecasting:** Linear Regression and Random Forest models use walk-forward validation to avoid look-ahead bias.
+| Telecom | Bharti Airtel |
 
 ---
 
@@ -193,7 +186,21 @@ cvxpy>=1.4.0
 statsmodels>=0.14.0
 scikit-learn>=1.4.0
 streamlit-autorefresh>=1.0.1
+matplotlib>=3.8.0
 ```
+
+---
+
+## Technical Notes
+
+- **Data source:** Yahoo Finance via `yfinance 1.2+`. NSE/BSE prices are delayed ~15 minutes.
+- **Live quotes:** Uses `fast_info.last_price` and `fast_info.previous_close` directly — no history call, no cache.
+- **Auto-refresh:** Page reruns every 5 seconds (configurable) using `streamlit-autorefresh`. Live quotes are re-fetched on every rerun; historical prices only reload on **Run Analysis**.
+- **Selection change detection:** Changing the stock selection in the sidebar automatically invalidates the price cache and triggers a fresh fetch.
+- **NumPy version:** CVXPY requires `numpy < 2.0`. The `requirements.txt` pins this.
+- **Plotly compatibility:** Uses `add_shape` + `add_annotation` instead of `add_vline` to avoid a bug in Plotly 6.x with timezone-aware timestamps.
+- **Walk-forward forecasting:** Linear Regression and Random Forest models use walk-forward validation to avoid look-ahead bias.
+- **ARIMA confidence intervals:** Handles both DataFrame and ndarray return types from `statsmodels` `conf_int()` across versions.
 
 ---
 

@@ -122,16 +122,26 @@ def arima_forecast(
         fc         = fit_full.get_forecast(steps=horizon)
         fc_mean    = np.exp(fc.predicted_mean)
         ci         = fc.conf_int(alpha=0.10)
-        fc_lower   = np.exp(ci.iloc[:, 0])
-        fc_upper   = np.exp(ci.iloc[:, 1])
+        # conf_int() returns DataFrame in newer statsmodels, ndarray in older
+        if hasattr(ci, "iloc"):
+            fc_lower = np.exp(ci.iloc[:, 0])
+            fc_upper = np.exp(ci.iloc[:, 1])
+        else:
+            ci = np.array(ci)
+            fc_lower = np.exp(ci[:, 0])
+            fc_upper = np.exp(ci[:, 1])
 
         future_idx = _future_business_dates(prices.index[-1], horizon)
 
+        fc_mean_vals  = np.array(fc_mean).flatten()
+        fc_upper_vals = np.array(fc_upper).flatten()
+        fc_lower_vals = np.array(fc_lower).flatten()
+
         return PredictionResult(
             model_name  = "ARIMA",
-            forecast    = pd.Series(fc_mean, index=future_idx, name="ARIMA"),
-            upper_bound = pd.Series(fc_upper.values, index=future_idx),
-            lower_bound = pd.Series(fc_lower.values, index=future_idx),
+            forecast    = pd.Series(fc_mean_vals,  index=future_idx, name="ARIMA"),
+            upper_bound = pd.Series(fc_upper_vals, index=future_idx),
+            lower_bound = pd.Series(fc_lower_vals, index=future_idx),
             metrics     = {"RMSE": round(rmse_val, 2), "MAPE (%)": round(mape_val, 2)},
         )
     except Exception as e:
