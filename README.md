@@ -26,7 +26,6 @@ Pick any combination of stocks listed on the **NSE or BSE**, analyse their indiv
 | 🎛️ | **Preset Baskets** | One-click presets: Tata Group, Top IT, Top Banking, Top Auto, Pharma, Energy |
 
 ---
-
 ## UI
 
 Clean, modern design inspired by Groww:
