@@ -23,7 +23,8 @@ SENSEX_TICKER  = "^BSESN"
 NSE_STOCKS = {
     # ── Tata Group ─────────────────────────────────────────────────────────
     "Tata Consultancy Services":  "TCS.NS",
-    "Tata Motors":                "TATAMOTORS.NS",
+    "Tata Motors":                "TMCV.NS",       # renamed TATAMOTORS.NS → TMCV.NS on 2026-03-17
+    "Tata Motors PV":             "TMPV.NS",       # Tata Motors Passenger Vehicles (demerged entity)
     "Tata Steel":                 "TATASTEEL.NS",
     "Tata Power":                 "TATAPOWER.NS",
     "Tata Consumer Products":     "TATACONSUM.NS",
@@ -201,6 +202,7 @@ TATA_STOCKS = {
 SECTOR_MAP = {
     "Tata Consultancy Services": "IT",
     "Tata Motors":               "Automobile",
+    "Tata Motors PV":            "Automobile",
     "Tata Steel":                "Metal & Mining",
     "Tata Power":                "Energy",
     "Tata Consumer Products":    "FMCG",
@@ -235,6 +237,7 @@ SECTOR_MAP = {
 MARKET_CAP_TIER = {
     "Tata Consultancy Services": "Large Cap",
     "Tata Motors":               "Large Cap",
+    "Tata Motors PV":            "Large Cap",
     "Tata Steel":                "Large Cap",
     "Tata Power":                "Mid Cap",
     "Tata Consumer Products":    "Large Cap",

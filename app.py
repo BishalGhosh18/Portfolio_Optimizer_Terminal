@@ -574,8 +574,12 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-# ── Auto-refresh ─────────────────────────────────────────────────────────────
-if auto_refresh:
+# ── Active tab tracking (controls autorefresh scope) ─────────────────────────
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "Live Feed"
+
+# Auto-refresh ONLY when on the Live Feed tab
+if auto_refresh and st.session_state.active_tab == "Live Feed":
     st_autorefresh(interval=refresh_secs * 1000, key="gw_refresh")
 
 # ── Welcome screen ────────────────────────────────────────────────────────────
@@ -695,15 +699,62 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_live, tab_charts, tab_risk, tab_opt, tab_score, tab_pred = st.tabs([
-    "📊 Live Feed", "📉 Charts", "⚠️ Risk", "⚙️ Optimizer", "🎯 Scorecard", "🔮 Predict",
-])
+# ── Custom tab bar ────────────────────────────────────────────────────────────
+TAB_NAMES = ["📊 Live Feed", "📉 Charts", "⚠️ Risk", "⚙️ Optimizer", "🎯 Scorecard", "🔮 Predict"]
+
+# Inject CSS to style active/inactive tab buttons
+st.markdown("""
+<style>
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] button {
+    width: 100% !important;
+    border-radius: 8px !important;
+    font-family: Inter, sans-serif !important;
+    font-size: 0.78rem !important;
+    font-weight: 500 !important;
+    padding: 8px 4px !important;
+    border: 1px solid #E5E7EB !important;
+    background: #ffffff !important;
+    color: #6B7280 !important;
+    transition: all 0.15s ease !important;
+}
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] button:hover {
+    background: #F3F4F6 !important;
+    color: #1B2236 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+tab_cols = st.columns(len(TAB_NAMES))
+for i, tname in enumerate(TAB_NAMES):
+    short = tname.split(" ", 1)[1]
+    with tab_cols[i]:
+        if st.button(tname, key=f"tab_btn_{i}", use_container_width=True):
+            st.session_state.active_tab = short
+            st.rerun()
+
+active = st.session_state.active_tab
+
+# Highlight the active tab button with CSS override using its index
+active_idx = next((i for i, t in enumerate(TAB_NAMES) if t.split(" ", 1)[1] == active), 0)
+st.markdown(f"""
+<style>
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:nth-child({active_idx + 1}) button {{
+    background: linear-gradient(135deg, #5367FF, #8B5CF6) !important;
+    color: #ffffff !important;
+    border: none !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 8px rgba(83,103,255,0.35) !important;
+}}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div style="border-top:2px solid #E5E7EB;margin:8px 0 16px;"></div>', unsafe_allow_html=True)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — LIVE FEED
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab_live:
+if active == "Live Feed":
     st.markdown(f'<div class="gw-section-title">Live Market Feed &nbsp;<span style="font-size:0.72rem;color:#9CA3AF;font-weight:400;">Updated {datetime.now().strftime("%H:%M:%S")}</span></div>', unsafe_allow_html=True)
 
     cols_per_row = 3
@@ -809,7 +860,7 @@ with tab_live:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — CHARTS
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab_charts:
+if active == "Charts":
     st.markdown('<div class="gw-section-title">Price Charts & Technicals</div>', unsafe_allow_html=True)
     chart_name = st.selectbox("Select Stock", list(prices.columns), key="chart_sel")
     ticker_sym = universe.get(chart_name, chart_name)
@@ -925,7 +976,7 @@ with tab_charts:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — RISK
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab_risk:
+if active == "Risk":
     st.markdown('<div class="gw-section-title">Risk Analytics</div>', unsafe_allow_html=True)
 
     risk_rows = []
@@ -981,7 +1032,7 @@ with tab_risk:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — OPTIMIZER
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab_opt:
+if active == "Optimizer":
     st.markdown('<div class="gw-section-title">Portfolio Optimizer</div>', unsafe_allow_html=True)
 
     with st.spinner(f"Optimizing [{opt_strategy}]..."):
@@ -1068,7 +1119,7 @@ with tab_opt:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 5 — SCORECARD
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab_score:
+if active == "Scorecard":
     st.markdown('<div class="gw-section-title">Risk Scorecard</div>', unsafe_allow_html=True)
     try:
         try:
@@ -1137,7 +1188,7 @@ with tab_score:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 6 — PREDICT
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab_pred:
+if active == "Predict":
     st.markdown('<div class="gw-section-title">Price Prediction Engine</div>', unsafe_allow_html=True)
 
     model_info = {
