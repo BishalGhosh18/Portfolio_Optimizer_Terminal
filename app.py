@@ -29,7 +29,7 @@ from risk_engine import (
     annualised_return, annualised_volatility, sharpe_ratio,
     drawdown_series, var_summary,
     correlation_matrix, rolling_volatility,
-    risk_scorecard, portfolio_returns, TRADING_DAYS,
+    portfolio_returns, TRADING_DAYS,
 )
 from optimizer import run_strategy, all_strategies_summary, STRATEGIES
 from predictor import PREDICTION_MODELS, run_prediction, compute_technical_indicators
@@ -501,9 +501,6 @@ def groww_fig(fig: go.Figure, height: int = 380, title: str = "") -> go.Figure:
     )
     return fig
 
-def _risk_color(level: str) -> str:
-    return {"Low": GW_GREEN, "Moderate": "#F59E0B",
-            "High": GW_RED, "Very High": "#7F1D1D"}.get(level, "#6B7280")
 
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
@@ -700,7 +697,7 @@ st.markdown(
 )
 
 # ── Custom tab bar ────────────────────────────────────────────────────────────
-TAB_NAMES = ["📊 Live Feed", "📉 Charts", "⚠️ Risk", "⚙️ Optimizer", "🎯 Scorecard", "🔮 Predict"]
+TAB_NAMES = ["📊 Live Feed", "📉 Charts", "⚠️ Risk", "⚙️ Optimizer", "🔮 Predict"]
 
 # Inject CSS to style active/inactive tab buttons
 st.markdown("""
@@ -1119,74 +1116,8 @@ if active == "Optimizer":
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 5 — SCORECARD
 # ═══════════════════════════════════════════════════════════════════════════════
-if active == "Scorecard":
-    st.markdown('<div class="gw-section-title">Risk Scorecard</div>', unsafe_allow_html=True)
-    try:
-        try:
-            _bench = fetch_benchmark(period=lookback)
-            _bench_ret = _bench.pct_change().dropna().iloc[:, 0] if _bench is not None and not _bench.empty else returns.mean(axis=1)
-        except Exception:
-            _bench_ret = returns.mean(axis=1)
-        _bench_ret = _bench_ret.reindex(returns.index).ffill().bfill()
-        sc = risk_scorecard(returns, _bench_ret)
-
-        if sc is not None and not sc.empty:
-            # Score cards grid
-            cols_sc = st.columns(min(3, len(sc)))
-            for i, (_, row) in enumerate(sc.iterrows()):
-                score = row.get("Risk Score", 50)
-                level = row.get("Risk Level", "Moderate")
-                color = _risk_color(level)
-                with cols_sc[i % 3]:
-                    st.markdown(f"""
-                    <div class="gw-card" style="text-align:center;padding:20px;">
-                        <div style="font-size:0.8rem;font-weight:600;color:#1B2236;margin-bottom:8px;">{row.name}</div>
-                        <div style="font-size:2rem;font-weight:700;color:{color};">{score:.0f}</div>
-                        <div style="font-size:0.7rem;color:#9CA3AF;margin-bottom:10px;">/ 100</div>
-                        <span style="background:{'rgba(0,208,156,0.1)' if level=='Low' else 'rgba(255,83,112,0.1)' if level in ('High','Very High') else 'rgba(245,158,11,0.1)'};
-                               color:{color};border-radius:20px;padding:3px 10px;font-size:0.72rem;font-weight:600;">{level}</span>
-                        <div class="gw-score-bar-wrap" style="margin-top:12px;">
-                            <div class="gw-score-bar" style="width:{score}%;background:{color};"></div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-            # ── Radar chart ──
-            cols_radar    = ["Ann. Return (%)", "Ann. Volatility (%)", "Sharpe Ratio", "Max Drawdown (%)", "Hist VaR 95% (%)"]
-            cols_present  = [c for c in cols_radar if c in sc.columns]
-            if cols_present:
-                fig_radar = go.Figure()
-                def _hex_rgba(h, alpha=0.1):
-                    h = h.lstrip("#")
-                    r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
-                    return f"rgba({r},{g},{b},{alpha})"
-                for i, name in enumerate(sc.index[:6]):
-                    vals  = sc.loc[name, cols_present].values.tolist()
-                    color = PALETTE[i % len(PALETTE)]
-                    fig_radar.add_trace(go.Scatterpolar(
-                        r=vals + [vals[0]], theta=cols_present + [cols_present[0]],
-                        name=name, line=dict(color=color, width=2),
-                        fill="toself", fillcolor=_hex_rgba(color),
-                    ))
-                groww_fig(fig_radar, 440, "Risk Radar")
-                fig_radar.update_layout(
-                    polar=dict(
-                        bgcolor="#FAFAFA",
-                        radialaxis=dict(gridcolor="#E5E7EB", linecolor="#E5E7EB",
-                                        tickfont=dict(family="Inter", size=8, color="#9CA3AF")),
-                        angularaxis=dict(gridcolor="#E5E7EB",
-                                         tickfont=dict(family="Inter", size=10, color="#374151")),
-                    )
-                )
-                st.plotly_chart(fig_radar, use_container_width=True)
-
-            num_cols = sc.select_dtypes(include="number").columns.tolist()
-            st.dataframe(sc.style.format({c: "{:.4f}" for c in num_cols}, na_rep="N/A"), use_container_width=True)
-    except Exception as e:
-        st.error(f"Scorecard error: {e}")
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 6 — PREDICT
+# TAB 5 — PREDICT
 # ═══════════════════════════════════════════════════════════════════════════════
 if active == "Predict":
     st.markdown('<div class="gw-section-title">Price Prediction Engine</div>', unsafe_allow_html=True)
