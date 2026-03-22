@@ -16,7 +16,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
 
 warnings.filterwarnings("ignore")
@@ -559,7 +559,52 @@ with st.sidebar:
     pred_company = st.selectbox("Stock to Predict", options=all_names,
                                 index=all_names.index(selected_names[0]) if selected_names else 0)
     pred_model   = st.selectbox("Model", list(PREDICTION_MODELS.keys()))
-    pred_horizon = st.slider("Forecast Horizon (Days)", 5, 180, 30)
+
+    # ── Date-wise forecast controls ──────────────────────────────────────────
+    horizon_mode = st.radio("Forecast by", ["Days", "Target Date"], horizontal=True)
+    _today = datetime.today().date()
+    if horizon_mode == "Days":
+        pred_horizon  = st.slider("Forecast Horizon (Days)", 5, 365, 30)
+        pred_end_date = None
+    else:
+        pred_end_date = st.date_input(
+            "Predict to Date",
+            value=_today + timedelta(days=30),
+            min_value=_today + timedelta(days=1),
+            max_value=_today + timedelta(days=730),
+        )
+        # Business days from today to target date
+        _bdays = len(pd.bdate_range(
+            start=_today + timedelta(days=1),
+            end=pred_end_date,
+        ))
+        pred_horizon = max(_bdays, 1)
+        st.caption(f"≈ {pred_horizon} trading days to {pred_end_date.strftime('%d %b %Y')}")
+
+    # ── Training data date filter ─────────────────────────────────────────────
+    train_from     = _today - timedelta(days=365 * 5)
+    train_to       = _today
+    st.markdown('<p style="color:#9CA3AF;font-size:0.72rem;margin:6px 0 2px;">TRAINING DATA FILTER</p>', unsafe_allow_html=True)
+    filter_enabled = st.checkbox("Limit training date range", value=False, key="train_filter_on")
+    if filter_enabled:
+        _col_a, _col_b = st.columns(2)
+        with _col_a:
+            train_from = st.date_input(
+                "From",
+                value=_today - timedelta(days=365 * 3),
+                min_value=_today - timedelta(days=365 * 10),
+                max_value=_today - timedelta(days=60),
+                key="train_from_date",
+            )
+        with _col_b:
+            train_to = st.date_input(
+                "To",
+                value=_today,
+                min_value=_today - timedelta(days=365 * 10),
+                max_value=_today,
+                key="train_to_date",
+            )
+    # ─────────────────────────────────────────────────────────────────────────
 
     st.markdown('<hr style="border-color:#2D3748;margin:12px 0;">', unsafe_allow_html=True)
     run_btn  = st.button("▶  Run Analysis", use_container_width=True)
@@ -1129,37 +1174,61 @@ if active == "Predict":
         "Monte Carlo":       "Geometric Brownian Motion simulation (10,000 paths)",
         "EMA Trend":         "Exponential moving average trend extrapolation",
     }
+    _horizon_label = (
+        f"Target: {pred_end_date.strftime('%d %b %Y')} ({pred_horizon} trading days)"
+        if pred_end_date else f"{pred_horizon} trading days"
+    )
+    _train_label = (
+        f"{train_from.strftime('%d %b %Y')} → {train_to.strftime('%d %b %Y')}"
+        if filter_enabled else "5 years (full)"
+    )
     st.markdown(f"""
     <div class="gw-info-box">
         <b>Model:</b> {pred_model} &nbsp;·&nbsp;
         <b>Stock:</b> {pred_company} &nbsp;·&nbsp;
-        <b>Horizon:</b> {pred_horizon} trading days<br>
+        <b>Horizon:</b> {_horizon_label}<br>
+        <b>Training data:</b> {_train_label}<br>
         <span style="color:#9CA3AF;font-size:0.75rem;">{model_info.get(pred_model,'')}</span>
     </div>
     """, unsafe_allow_html=True)
 
     if pred_btn or (st.session_state.pred_result and
                    st.session_state.pred_result.get("company") == pred_company and
-                   st.session_state.pred_result.get("model") == pred_model):
+                   st.session_state.pred_result.get("model") == pred_model and
+                   st.session_state.pred_result.get("horizon") == pred_horizon):
 
         if pred_btn:
             with st.spinner(f"Running {pred_model} on {pred_company}..."):
                 try:
-                    if pred_company in prices.columns:
-                        price_series = prices[pred_company].dropna()
-                    else:
-                        pred_ticker = universe.get(pred_company, pred_company)
-                        _raw = fetch_price_data([pred_ticker], period=lookback)
-                        if _raw.empty:
-                            raise ValueError(f"No data for {pred_company}")
-                        price_series = _raw.iloc[:, 0].dropna()
-                        price_series.name = pred_company
-                    if len(price_series) < 30:
-                        raise ValueError(f"Not enough data ({len(price_series)} points)")
+                    # Always fetch 5y for prediction regardless of portfolio lookback
+                    pred_ticker  = universe.get(pred_company, pred_company)
+                    _raw = fetch_price_data([pred_ticker], period="5y")
+                    if _raw.empty:
+                        raise ValueError(f"No data for {pred_company}")
+                    price_series = _raw.iloc[:, 0].dropna()
+                    price_series.name = pred_company
+
+                    # ── Apply training date filter (only when enabled) ────────
+                    if filter_enabled:
+                        _tf = pd.Timestamp(train_from)
+                        _tt = pd.Timestamp(train_to)
+                        price_series = price_series[
+                            (price_series.index >= _tf) & (price_series.index <= _tt)
+                        ]
+                        if len(price_series) < 60:
+                            raise ValueError(
+                                f"Only {len(price_series)} data points between "
+                                f"{train_from.strftime('%d %b %Y')} and "
+                                f"{train_to.strftime('%d %b %Y')}. "
+                                f"Need at least 60 — widen the range."
+                            )
+                    # ─────────────────────────────────────────────────────────
+
                     result = run_prediction(pred_model, price_series, horizon=pred_horizon)
                     st.session_state.pred_result = {
                         "company": pred_company, "model": pred_model,
                         "result": result, "series": price_series,
+                        "horizon": pred_horizon, "end_date": pred_end_date,
                     }
                 except Exception as e:
                     st.error(f"Prediction error: {e}")
@@ -1223,9 +1292,14 @@ if active == "Predict":
                     </div>""", unsafe_allow_html=True)
                 with m_cols[1]:
                     color = GW_GREEN if pred_chg > 0 else GW_RED
+                    _stored_end = pr.get("end_date")
+                    _in_label   = (
+                        _stored_end.strftime("%d %b %Y")
+                        if _stored_end else f"In {pred_horizon} Days"
+                    )
                     st.markdown(f"""
                     <div class="gw-stat-card">
-                        <div class="gw-stat-label">In {pred_horizon} Days</div>
+                        <div class="gw-stat-label">{_in_label}</div>
                         <div class="gw-stat-value">₹{last_fore:,.2f}</div>
                         <div class="gw-stat-sub" style="color:{color};">{pred_chg:+.2f}%</div>
                     </div>""", unsafe_allow_html=True)
@@ -1251,8 +1325,13 @@ if active == "Predict":
                     f1w  = float(forecast.iloc[min(4,  len(forecast)-1)])
                     f1m  = float(forecast.iloc[min(19, len(forecast)-1)])
                     fend = float(forecast.iloc[-1])
+                    _stored_end2 = pr.get("end_date")
+                    _end_label   = (
+                        _stored_end2.strftime("%d %b %Y")
+                        if _stored_end2 else f"{pr.get('horizon', pred_horizon)} Days"
+                    )
                     sc_df = pd.DataFrame({
-                        "Horizon":  ["1 Week", "1 Month", f"{pred_horizon} Days"],
+                        "Horizon":  ["1 Week", "1 Month", _end_label],
                         "Forecast": [f"₹{f1w:,.2f}",  f"₹{f1m:,.2f}",  f"₹{fend:,.2f}"],
                         "Change":   [f"{(f1w-cur)/cur*100:+.2f}%",  f"{(f1m-cur)/cur*100:+.2f}%",
                                      f"{(fend-cur)/cur*100:+.2f}%"],
