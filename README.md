@@ -8,7 +8,7 @@ Live price feed · Risk analysis · Portfolio optimisation · Price prediction
 
 ## What This Tool Does
 
-Pick any combination of stocks listed on the **NSE or BSE**, analyse their individual and combined risk, optimise portfolio weights across 5 strategies, and forecast future prices using multiple ML/statistical models — all inside a clean, modern UI that auto-refreshes live data every 5 seconds.
+Pick any combination of stocks listed on the **NSE or BSE**, analyse their individual and combined risk, optimise portfolio weights across 5 strategies, and forecast future prices using ML and statistical models — all inside a clean, modern UI that auto-refreshes live data every 5 seconds.
 
 ---
 
@@ -20,16 +20,16 @@ Pick any combination of stocks listed on the **NSE or BSE**, analyse their indiv
 | 📉 | **Interactive Charts** | Candlestick, Volume, RSI, MACD, Bollinger Bands, normalised performance comparison |
 | ⚠️ | **Risk Analytics** | VaR (Historical, Parametric), CVaR/ES, Sharpe, Sortino, Calmar, Beta, Max Drawdown, Rolling Volatility |
 | ⚙️ | **Portfolio Optimisation** | 5 strategies: Max Sharpe, Min Volatility, Risk Parity, Max Diversification, Equal Weight |
-| 🎯 | **Risk Scorecard** | Composite risk score (0–100) per stock with radar chart |
-| 🔮 | **Price Prediction** | 5 models: ARIMA, Linear Regression, Random Forest, Monte Carlo GBM, EMA Trend |
+| 🔮 | **Price Prediction** | 5 models: Ensemble (XGB+LGB+RF), XGBoost, LightGBM, Monte Carlo GBM, ARIMA — with confidence bands |
 | 🏢 | **130+ Stocks** | Full NSE & BSE universe across all major sectors |
 | 🎛️ | **Preset Baskets** | One-click presets: Tata Group, Top IT, Top Banking, Top Auto, Pharma, Energy |
 
 ---
+
 ## UI
 
 Clean, modern design inspired by Groww:
-- White card layout with soft shadows
+- White card layout with soft shadows on a `#F6F7F8` background
 - Green `#00D09C` for gains · Red `#FF5370` for losses
 - Purple gradient `#5367FF → #8B5CF6` for accents and buttons
 - Dark navy `#1B2236` sidebar
@@ -42,11 +42,11 @@ Clean, modern design inspired by Groww:
 
 ```
 portfolio-optimizer/
-├── app.py            — Streamlit UI (Groww theme, 6 tabs, auto-refresh)
+├── app.py            — Streamlit UI (Groww theme, 5 tabs, auto-refresh)
 ├── data_fetcher.py   — yfinance data layer, 130+ stock universe, live quotes
-├── risk_engine.py    — Risk metrics: VaR, CVaR, Sharpe, Beta, drawdown, scorecard
+├── risk_engine.py    — Risk metrics: VaR, CVaR, Sharpe, Beta, drawdown
 ├── optimizer.py      — Markowitz optimisation, 5 strategies
-├── predictor.py      — Price prediction: ARIMA, LinReg, RF, Monte Carlo, EMA
+├── predictor.py      — Price prediction: Ensemble, XGBoost, LightGBM, Monte Carlo, ARIMA
 ├── requirements.txt  — Python dependencies
 └── run.sh            — One-command launcher
 ```
@@ -68,7 +68,6 @@ portfolio-optimizer/
 - `max_drawdown / drawdown_series` — peak-to-trough drawdown
 - `beta(returns, benchmark_returns)` — market sensitivity vs Nifty 50 / Sensex
 - `correlation_matrix / rolling_volatility` — portfolio-level diagnostics
-- `risk_scorecard(returns, benchmark_returns)` — composite 0–100 risk score per stock
 
 **`optimizer.py`**
 - `max_sharpe_weights` — SLSQP optimisation maximising Sharpe ratio
@@ -79,12 +78,12 @@ portfolio-optimizer/
 - `all_strategies_summary` — runs all 5 strategies and returns a comparison table
 
 **`predictor.py`**
+- `ensemble_forecast` — XGBoost + LightGBM + Random Forest blended by inverse RMSE; bootstrap confidence intervals
+- `xgboost_forecast` — XGBoost on 60+ engineered features predicting log returns; walk-forward validation
+- `lightgbm_forecast` — LightGBM with early stopping on same feature set; walk-forward validation
+- `monte_carlo_forecast` — Geometric Brownian Motion (1 000 paths) with GARCH-like volatility decay
 - `arima_forecast` — ARIMA(p,d,q) with auto-order selection; confidence intervals
-- `linear_regression_forecast` — Ridge regression with lag features, MA, RSI, MACD; walk-forward validation
-- `random_forest_forecast` — Random Forest ensemble; walk-forward validation
-- `monte_carlo_forecast` — Geometric Brownian Motion (1000 paths), median + confidence band
-- `ema_forecast` — EMA trend extrapolation with residual-based confidence band
-- `compute_technical_indicators` — MA(20/50/200), EMA(12/26), MACD, RSI(14), Bollinger Bands, ATR
+- `_build_features()` — 60+ features: multi-timeframe momentum, RSI (9/14/21), MACD, Bollinger, stochastic, Williams %R, vol regimes, 52-week range position, calendar
 
 ---
 
@@ -147,11 +146,26 @@ Click **▶ Run Analysis** to load historical price data and compute all metrics
 | 📉 **Charts** | Candlestick with MA overlays + Bollinger Bands · Volume · RSI · MACD · Normalised performance · Correlation matrix |
 | ⚠️ **Risk** | Per-stock risk table (Return, Volatility, Sharpe, Max Drawdown, VaR, CVaR) · Rolling volatility · Drawdown chart |
 | ⚙️ **Optimizer** | Portfolio weights pie & bar chart · Key portfolio metrics · Strategy comparison table |
-| 🎯 **Scorecard** | Risk score cards per stock · Radar chart · Full metrics table |
 | 🔮 **Predict** | Forecast chart with confidence bands · Scenario table (1W / 1M / horizon) · Model accuracy metrics |
 
 ### 5 — Run a prediction
-Select a **stock**, **model**, and **forecast horizon** in the sidebar, then click **🔮 Run Prediction**.
+- Select a **stock**, **model**, and **forecast horizon** in the sidebar
+- Optionally enable **Training Data Filter** to restrict the date range the model trains on
+- Click **🔮 Run Prediction**
+
+---
+
+## Prediction Models
+
+| Model | Approach | Best For |
+|---|---|---|
+| **Ensemble (Best)** | XGBoost + LightGBM + Random Forest, weighted by inverse RMSE | General use — most accurate |
+| **XGBoost** | Gradient boosting on 60+ features, log-return prediction | Trending markets |
+| **LightGBM** | Fast gradient boosting with early stopping | Large history, quick turnaround |
+| **Monte Carlo (GBM)** | 1 000 simulated paths with GARCH-like vol decay | Range estimation / stress testing |
+| **ARIMA** | Classical time-series, auto order selection | Baseline / short horizons |
+
+All ML models predict **log returns** (stationary series) instead of raw prices, then reconstruct the price path via `last_price × exp(cumsum(log_returns))`. Confidence bands are built using bootstrap residual resampling (500 iterations).
 
 ---
 
@@ -159,7 +173,7 @@ Select a **stock**, **model**, and **forecast horizon** in the sidebar, then cli
 
 | Sector | Example Stocks |
 |---|---|
-| Tata Group | TCS, Tata Motors, Tata Steel, Tata Power, Titan, Trent, Voltas |
+| Tata Group | TCS, Tata Motors CV, Tata Steel, Tata Power, Titan, Trent, Voltas |
 | Banking & Finance | HDFC Bank, ICICI Bank, SBI, Kotak, Axis, Bajaj Finance |
 | IT & Technology | Infosys, Wipro, HCL Tech, Tech Mahindra |
 | Pharma | Sun Pharma, Dr. Reddy's, Cipla, Divi's, Lupin |
@@ -176,7 +190,7 @@ Select a **stock**, **model**, and **forecast horizon** in the sidebar, then cli
 
 ```
 streamlit>=1.32.0
-yfinance>=0.2.50
+yfinance>=1.2.0
 pandas>=2.0.0
 numpy>=1.26.0,<2.0.0
 scipy>=1.12.0
@@ -184,6 +198,8 @@ plotly>=5.20.0
 cvxpy>=1.4.0
 statsmodels>=0.14.0
 scikit-learn>=1.4.0
+xgboost>=2.0.0
+lightgbm>=4.0.0
 streamlit-autorefresh>=1.0.1
 matplotlib>=3.8.0
 ```
@@ -194,12 +210,13 @@ matplotlib>=3.8.0
 
 - **Data source:** Yahoo Finance via `yfinance 1.2+`. NSE/BSE prices are delayed ~15 minutes.
 - **Live quotes:** Uses `fast_info.last_price` and `fast_info.previous_close` directly — no history call, no cache.
-- **Auto-refresh:** Page reruns every 5 seconds (configurable) using `streamlit-autorefresh`. Live quotes are re-fetched on every rerun; historical prices only reload on **Run Analysis**.
-- **Selection change detection:** Changing the stock selection in the sidebar automatically invalidates the price cache and triggers a fresh fetch.
+- **Auto-refresh:** Page reruns every 5 seconds (configurable) using `streamlit-autorefresh`. Scoped to the Live Feed tab only — other tabs are unaffected.
+- **Selection change detection:** Changing the stock selection automatically invalidates the price cache and triggers a fresh fetch on the next Run Analysis.
+- **Tata Motors tickers:** Yahoo Finance renamed `TATAMOTORS.NS` on 2026-03-17. Use `TMCV.NS` (commercial vehicles) and `TMPV.NS` (passenger vehicles, demerged entity).
+- **Log-return prediction:** ML models predict log returns (stationary) to avoid non-stationarity issues, then reconstruct the price path.
+- **Bootstrap CI:** Confidence intervals are built by resampling model residuals 500 times, not from parametric assumptions.
 - **NumPy version:** CVXPY requires `numpy < 2.0`. The `requirements.txt` pins this.
 - **Plotly compatibility:** Uses `add_shape` + `add_annotation` instead of `add_vline` to avoid a bug in Plotly 6.x with timezone-aware timestamps.
-- **Walk-forward forecasting:** Linear Regression and Random Forest models use walk-forward validation to avoid look-ahead bias.
-- **ARIMA confidence intervals:** Handles both DataFrame and ndarray return types from `statsmodels` `conf_int()` across versions.
 
 ---
 
