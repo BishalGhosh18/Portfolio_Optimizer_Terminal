@@ -1,0 +1,295 @@
+PORTFOLIO OPTIMIZER - UI GUIDE
+==============================
+A walkthrough of every element in the dashboard, tab by tab.
+
+
+OVERVIEW
+--------
+When you open the app, you see:
+
+  1. Sidebar        - all your controls (stock selection, parameters, buttons)
+  2. Header bar     - shows exchange, number of securities selected, live badge
+  3. Ticker strip   - scrollable bar showing live price and change % for every selected stock
+  4. 6 tabs         - the main content area
+
+
+SIDEBAR
+-------
+The sidebar is the control panel. Everything you configure here affects the entire app.
+
+  Live Auto-Refresh toggle
+      Turns auto-refresh on or off.
+
+  Refresh Every
+      How often the live data updates. Options: 5s, 10s, 15s, 30s, 60s.
+
+  Exchange
+      Switch between NSE and BSE.
+
+  Preset Basket
+      One-click selection of a themed group of stocks.
+      Options: Tata Group, Top IT, Top Banking, Top Auto, Pharma, Energy.
+
+  Select Companies
+      Search and pick any companies from the full 130+ stock list.
+      Changing this selection automatically triggers a fresh data fetch.
+
+  Lookback Period
+      How far back historical data goes. Options: 6 months to 5 years.
+
+  Optimization Strategy
+      Which strategy to use in the Optimizer tab.
+      Options: Max Sharpe, Min Volatility, Risk Parity, Max Diversification, Equal Weight.
+
+  Risk-Free Rate (%)
+      Used for Sharpe and Sortino calculations. Defaults to 6.5% (Indian 10-yr G-Sec).
+
+  Stock to Predict
+      Which stock to run the prediction model on.
+
+  Model
+      Which prediction model to use.
+      Options: ARIMA, Linear Regression, Random Forest, Monte Carlo, EMA Trend.
+
+  Forecast Horizon (Days)
+      How many trading days ahead to forecast. Range: 5 to 180 days.
+
+  Run Analysis button
+      Fetches historical price data and runs all risk and optimisation calculations.
+
+  Run Prediction button
+      Runs the selected prediction model and shows the forecast chart.
+
+
+TICKER STRIP
+------------
+The horizontal scrollable bar just below the page header. Updates on every refresh cycle.
+
+  Format: TICKER  Price  Change%
+  Green  = stock is up today
+  Red    = stock is down today
+  Gray   = no change or data not yet loaded
+
+
+TAB 1 - LIVE FEED
+-----------------
+The main live monitoring screen. Shows real-time market data for all selected stocks.
+
+  Stock Cards
+      Each stock gets its own card arranged in a 3-column grid. Each card shows:
+
+        Company name and ticker symbol
+        Current price in rupees
+        Day's change in % with up/down arrow (green = up, red = down)
+        52-Week High  - highest price in the past 52 weeks
+        52-Week Low   - lowest price in the past 52 weeks
+        Volume        - 3-month average trading volume in Lakhs
+        Market Cap    - market capitalisation in rupees Billions
+
+  Market Breadth
+      A panel showing how many of your selected stocks are:
+        Gainers - up today, shown in green with a progress bar
+        Losers  - down today, shown in red
+        Flat    - no change, shown in gray
+      The bar fill shows what percentage of your portfolio is in each bucket.
+
+  Daily Change % Chart
+      A bar chart showing today's percentage change for every selected stock,
+      sorted from biggest loser to biggest gainer.
+      Green bars = up, Red bars = down.
+
+  Benchmark Performance
+      A line chart comparing cumulative returns of Nifty 50 and Sensex over your
+      chosen lookback period. Useful as a reference against your own portfolio.
+
+
+TAB 2 - CHARTS
+--------------
+Detailed price and technical analysis for one stock at a time.
+Use the dropdown at the top to switch between stocks.
+
+  Candlestick Chart
+      Shows Open, High, Low, Close price bars for each trading day.
+        Green candle  = price closed higher than it opened
+        Red candle    = price closed lower than it opened
+        MA20          = 20-day moving average, tracks short-term trend (amber dotted line)
+        MA50          = 50-day moving average, tracks medium-term trend (purple dotted line)
+        MA200         = 200-day moving average, tracks long-term trend (pink dotted line)
+        Bollinger Bands = +/- 2 standard deviations from MA20 (faint blue shading)
+                          Price near upper band = overbought
+                          Price near lower band = oversold
+
+  Volume Chart
+      Bar chart below the candlestick showing daily traded volume.
+      Green = up day, Red = down day.
+
+  RSI - Relative Strength Index
+      A momentum oscillator ranging from 0 to 100.
+        Above 70 = overbought, stock may be due for a pullback (red zone)
+        Below 30 = oversold, stock may be due for a bounce (green zone)
+        30 to 70 = neutral zone
+
+  MACD - Moving Average Convergence Divergence
+      A trend-following momentum indicator.
+        MACD line      = difference between 12-day and 26-day EMA (purple line)
+        Signal line    = 9-day EMA of MACD (amber line)
+        Histogram bars = difference between MACD and Signal
+                         Green bars = bullish momentum
+                         Red bars   = bearish momentum
+        When MACD crosses above Signal = potential buy signal
+        When MACD crosses below Signal = potential sell signal
+
+  Normalised Performance (Base 100)
+      All selected stocks plotted together starting from a common base of 100.
+      Shows which stocks have outperformed or underperformed each other.
+
+  Correlation Matrix
+      A heatmap showing how pairs of stocks move together.
+        Close to +1.0 = stocks move together strongly (dark green)
+        Close to -1.0 = stocks move in opposite directions (dark red)
+        Close to  0   = little relationship between the two stocks
+      Lower correlation between stocks = better portfolio diversification.
+
+
+TAB 3 - RISK
+------------
+Quantitative risk analysis for each stock individually.
+
+  Risk Metrics Table
+      One row per stock with the following columns:
+
+        Ann Ret %   Annualised compound return over the lookback period
+        Ann Vol %   Annualised volatility. Higher value = more risky
+        Sharpe      Return earned per unit of risk. Above 1.0 is considered good
+        Max DD %    Maximum Drawdown - worst peak-to-trough decline in the period
+        VaR 95%     Value at Risk at 95% confidence.
+                    On the worst 5% of days, loss exceeds this percentage
+        CVaR 95%    Conditional VaR - average loss on those worst 5% of days.
+                    Always worse than VaR
+
+      The table uses colour gradients. Green shading = better value, Red shading = worse value.
+
+  Rolling 21-Day Volatility Chart
+      A line chart showing how each stock's risk has changed over time.
+      Spikes indicate periods of high uncertainty such as market crashes or earnings events.
+      Useful to check if a stock is currently more or less volatile than its historical average.
+
+  Drawdown Chart
+      Select a stock from the dropdown. The chart shows the running drawdown,
+      which is how far the price is below its previous peak at any point in time.
+      The deeper the red area, the worse the loss was at that moment.
+
+
+TAB 4 - OPTIMIZER
+-----------------
+Portfolio construction using mathematical optimisation.
+Finds the best way to allocate money across your selected stocks.
+
+  Key Metrics (4 stat cards at the top)
+
+    Annual Return    Expected compounded return if the optimised weights were held
+    Annual Volatility Expected risk level of the portfolio
+    Sharpe Ratio     Risk-adjusted return of the optimised portfolio
+    Max Drawdown     Worst historical drawdown at these weights
+
+  Allocation Pie Chart
+      Shows the optimal weight for each stock as a percentage of the total portfolio.
+      Stocks with a weight below 0.01% are hidden.
+
+  Weight Allocation Bar Chart
+      A horizontal bar chart of the same weights, sorted from highest to lowest.
+      The darker the bar, the higher the allocation.
+
+  Strategy Comparison Table
+      Runs all 5 strategies simultaneously and shows their metrics side by side.
+
+        Max Sharpe         Maximises risk-adjusted return (best return per unit of risk)
+        Min Volatility     Minimises portfolio variance (least risky combination)
+        Risk Parity        Each stock contributes equally to total portfolio risk
+        Max Diversification Maximises the diversification ratio across all assets
+        Equal Weight       Same weight to every stock, a simple 1/N baseline
+
+      Green highlights = best value in that column.
+
+
+TAB 5 - SCORECARD
+-----------------
+A risk rating for each individual stock, designed for quick comparison.
+
+  Score Cards
+      Each stock gets a card showing:
+        Score (0-100)   Composite risk score based on return, volatility, Sharpe, drawdown and VaR
+        Risk Level      Low / Moderate / High / Very High
+        Progress bar    Colour-coded bar. Green = low risk, Red = high risk
+
+      Lower score = lower risk. Higher score = higher risk.
+
+  Risk Radar Chart
+      A spider chart where each axis represents a different risk metric:
+        Ann. Return %
+        Ann. Volatility %
+        Sharpe Ratio
+        Max Drawdown %
+        Hist VaR 95%
+
+      Each stock gets its own coloured polygon on the chart.
+      A stock with a large polygon on Volatility and VaR but small on Return = high risk, low reward.
+      Ideal stocks have large Return/Sharpe polygons and small Volatility/Drawdown polygons.
+
+  Full Metrics Table
+      The complete numerical scorecard for all stocks in one table,
+      including every individual metric used to calculate the composite score.
+
+
+TAB 6 - PREDICT
+---------------
+Machine learning and statistical price forecasting for a single stock.
+Configure the stock, model and horizon in the sidebar, then click Run Prediction.
+
+  Model Info Banner
+      Shows the selected model, stock name, forecast horizon, and a brief description
+      of what the model does.
+
+  Forecast Chart
+      A price chart split into two sections:
+        Historical prices  Last 180 days of actual prices (dark navy line)
+        Forecast           Predicted prices for the next N days (purple dashed line)
+        Confidence band    Range of likely outcomes (purple shaded area)
+                           A wider band means more uncertainty in the forecast
+        Today line         Vertical dotted line marking where history ends and forecast begins
+
+  Key Metrics (4 stat cards)
+
+    Current Price    Last known price
+    In N Days        Forecasted price at the end of the horizon with % change
+    RMSE             Root Mean Squared Error - average prediction error in rupees. Lower = more accurate
+    MAPE             Mean Absolute Percentage Error - average % error. Lower = more accurate
+
+  Scenario Analysis Table
+      Shows the forecast at three time points:
+        1 Week    Price in approximately 5 trading days
+        1 Month   Price in approximately 20 trading days
+        N Days    Price at the end of your chosen horizon
+
+      Each row also shows the expected % change from today and a BUY or SELL signal
+      based on whether the forecast is above or below the current price.
+
+  Prediction Models
+
+    ARIMA              Best for short-term forecasts on stocks with clear time-series patterns
+    Linear Regression  Best for trend-based stocks. Uses lag features and technical indicators
+    Random Forest      Best for non-linear patterns. More robust to noisy data
+    Monte Carlo (GBM)  Best for probability-based range forecasts. Shows distribution of possible futures
+    EMA Trend          Simple directional forecast. Extrapolates the current moving average trend
+
+  Note: These forecasts are statistical estimates, not financial advice.
+        Use them alongside your own research.
+
+
+COLOUR REFERENCE
+----------------
+  Green  (#00D09C)  Gain, positive signal, low risk
+  Red    (#FF5370)  Loss, negative signal, high risk
+  Purple (#5367FF)  Accent colour, charts, buttons, forecast line
+  Amber  (#F59E0B)  Warning, moderate risk, signal line
+  Navy   (#1B2236)  Sidebar, headers, historical price line

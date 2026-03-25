@@ -607,8 +607,9 @@ with st.sidebar:
     # ─────────────────────────────────────────────────────────────────────────
 
     st.markdown('<hr style="border-color:#2D3748;margin:12px 0;">', unsafe_allow_html=True)
-    run_btn  = st.button("▶  Run Analysis", use_container_width=True)
-    pred_btn = st.button("🔮  Run Prediction", use_container_width=True)
+    run_btn      = st.button("▶  Run Analysis",       use_container_width=True)
+    pred_btn     = st.button("🔮  Run Prediction",    use_container_width=True)
+    compare_btn  = st.button("⚖️  Compare All Models", use_container_width=True)
 
     st.markdown(
         f'<div style="font-size:0.68rem;color:#4B5563;margin-top:12px;text-align:center;">'
@@ -648,7 +649,7 @@ if len(selected_names) < 2:
 
 # ── Session state ─────────────────────────────────────────────────────────────
 for k, v in [("data_loaded", False), ("prices", None), ("quotes", {}),
-             ("pred_result", None), ("last_selection", [])]:
+             ("pred_result", None), ("compare_results", None), ("last_selection", [])]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -1168,11 +1169,14 @@ if active == "Predict":
     st.markdown('<div class="gw-section-title">Price Prediction Engine</div>', unsafe_allow_html=True)
 
     model_info = {
-        "ARIMA":             "Auto-regressive Integrated Moving Average — classical time-series model",
-        "Linear Regression": "Ridge regression with lag + RSI/MACD/BB technical signals",
-        "Random Forest":     "Ensemble of decision trees with walk-forward validation",
-        "Monte Carlo":       "Geometric Brownian Motion simulation (10,000 paths)",
-        "EMA Trend":         "Exponential moving average trend extrapolation",
+        "TS Ensemble (Best)":  "Inverse-MAPE weighted blend of all 6 TS models — best overall accuracy",
+        "Prophet":             "Facebook Prophet: trend + weekly/yearly seasonality decomposition",
+        "Holt-Winters (ETS)":  "Exponential smoothing with damped trend — robust for medium horizons",
+        "SARIMA":              "Seasonal ARIMA with auto-order selection; weekly seasonality (s=5)",
+        "Theta":               "Theta decomposition method — often outperforms ARIMA on financial data",
+        "XGBoost (TS)":        "Gradient boosting on 80+ TS features with TimeSeriesSplit cross-validation",
+        "LightGBM (TS)":       "Fast gradient boosting with TimeSeriesSplit CV; strong on large feature sets",
+        "Monte Carlo (GBM)":   "5 000 GBM paths with GARCH-like volatility — range estimation & stress testing",
     }
     _horizon_label = (
         f"Target: {pred_end_date.strftime('%d %b %Y')} ({pred_horizon} trading days)"
@@ -1235,7 +1239,7 @@ if active == "Predict":
                     st.session_state.pred_result = None
 
         pr = st.session_state.pred_result
-        if pr and pr.get("result") is not None:
+        if pr and pr.get("result") is not None and pr.get("series") is not None:
             result       = pr["result"]
             price_series = pr["series"]
 
@@ -1348,6 +1352,225 @@ if active == "Predict":
             <div style="color:#9CA3AF;font-size:0.82rem;margin-top:6px;">
                 Select a stock, model and horizon in the sidebar, then click <b>Run Prediction</b>
             </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── Model Comparison ──────────────────────────────────────────────────────
+    st.markdown('<hr style="margin:24px 0 16px;">', unsafe_allow_html=True)
+    st.markdown('<div class="gw-section-title">Model Comparison</div>', unsafe_allow_html=True)
+
+    # Run all models when button clicked
+    if compare_btn:
+        with st.spinner(f"Running all models on {pred_company} ({pred_horizon}d)…"):
+            try:
+                pred_ticker = universe.get(pred_company, pred_company)
+                _raw = fetch_price_data([pred_ticker], period="5y")
+                if _raw.empty:
+                    raise ValueError(f"No data for {pred_company}")
+                cmp_series = _raw.iloc[:, 0].dropna()
+                cmp_series.name = pred_company
+                if filter_enabled:
+                    _tf = pd.Timestamp(train_from)
+                    _tt = pd.Timestamp(train_to)
+                    cmp_series = cmp_series[(cmp_series.index >= _tf) & (cmp_series.index <= _tt)]
+                    if len(cmp_series) < 60:
+                        raise ValueError("Date range too narrow for comparison — need 60+ rows.")
+                cmp_results = {}
+                for mname, mfn in PREDICTION_MODELS.items():
+                    try:
+                        cmp_results[mname] = {
+                            "result": mfn(cmp_series, horizon=pred_horizon),
+                            "series": cmp_series,
+                        }
+                    except Exception as me:
+                        cmp_results[mname] = {"error": str(me)}
+                st.session_state.compare_results = {
+                    "company": pred_company, "horizon": pred_horizon,
+                    "results": cmp_results,
+                }
+            except Exception as e:
+                st.error(f"Comparison error: {e}")
+                st.session_state.compare_results = None
+
+    cr = st.session_state.compare_results
+    if cr and cr.get("company") == pred_company and cr.get("horizon") == pred_horizon:
+        cmp_results = cr["results"]
+
+        # ── Overlay forecast chart ────────────────────────────────────────────
+        MODEL_COLORS = {
+            "TS Ensemble (Best)":  "#5367FF",
+            "Prophet":             "#00D09C",
+            "Holt-Winters (ETS)":  "#F59E0B",
+            "SARIMA":              "#8B5CF6",
+            "Theta":               "#06B6D4",
+            "XGBoost (TS)":        "#10B981",
+            "LightGBM (TS)":       "#F97316",
+            "Monte Carlo (GBM)":   "#EF4444",
+        }
+        fig_cmp = go.Figure()
+        # Historical price (use first successful result's series)
+        ref_series = next(
+            (v["series"] for v in cmp_results.values() if "series" in v), None
+        )
+        if ref_series is not None:
+            hist = ref_series.tail(180)
+            hist_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in hist.index]
+            fig_cmp.add_trace(go.Scatter(
+                x=hist_idx, y=hist.values, mode="lines", name="Historical",
+                line=dict(color=GW_NAVY, width=2),
+            ))
+        for mname, mdata in cmp_results.items():
+            if "error" in mdata:
+                continue
+            res = mdata["result"]
+            if res.error or res.forecast is None or res.forecast.empty:
+                continue
+            fc  = res.forecast
+            col = MODEL_COLORS.get(mname, "#6B7280")
+            fore_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in fc.index]
+            fig_cmp.add_trace(go.Scatter(
+                x=fore_idx, y=fc.values, mode="lines",
+                name=mname, line=dict(color=col, width=2, dash="dash"),
+            ))
+        if ref_series is not None:
+            _vline(fig_cmp, ref_series.index[-1])
+        groww_fig(fig_cmp, 480, f"{pred_company} — All Models ({pred_horizon}d horizon)")
+        st.plotly_chart(fig_cmp, use_container_width=True)
+
+        # ── Comparison metrics table ──────────────────────────────────────────
+        last_price = float(ref_series.iloc[-1]) if ref_series is not None else None
+        rows = []
+        for mname, mdata in cmp_results.items():
+            if "error" in mdata:
+                rows.append({
+                    "Model": mname, "1 Week": "—", "1 Month": "—",
+                    f"{pred_horizon}d": "—", "Change %": "—",
+                    "Dir Acc %": "—", "MAPE % (price)": "—", "Status": "❌ Error",
+                })
+                continue
+            res = mdata["result"]
+            if res.error or res.forecast is None or res.forecast.empty:
+                rows.append({
+                    "Model": mname, "1 Week": "—", "1 Month": "—",
+                    f"{pred_horizon}d": "—", "Change %": "—",
+                    "Dir Acc %": "—", "MAPE % (price)": "—", "Status": "❌ Error",
+                })
+                continue
+            fc   = res.forecast
+            f1w  = float(fc.iloc[min(4,  len(fc)-1)])
+            f1m  = float(fc.iloc[min(19, len(fc)-1)])
+            fend = float(fc.iloc[-1])
+            chg  = (fend - last_price) / last_price * 100 if last_price else 0
+            m    = res.metrics or {}
+            rows.append({
+                "Model":           mname,
+                "1 Week":          f"₹{f1w:,.2f}",
+                "1 Month":         f"₹{f1m:,.2f}",
+                f"{pred_horizon}d": f"₹{fend:,.2f}",
+                "Change %":        f"{chg:+.2f}%",
+                "Dir Acc %":       str(m.get("Directional Acc %", m.get("Directional Accuracy %", "—"))),
+                "MAPE % (price)":  str(m.get("MAPE % (price)", m.get("MAPE (%)", "—"))),
+                "Signal":          "🟢 BUY" if chg > 0 else "🔴 SELL",
+            })
+
+        cmp_df = pd.DataFrame(rows).set_index("Model")
+        st.dataframe(cmp_df, use_container_width=True)
+
+        # ── Accuracy Leaderboard ──────────────────────────────────────────────
+        st.markdown('<div class="gw-section-title" style="margin-top:18px;">🏆 Model Accuracy Leaderboard</div>', unsafe_allow_html=True)
+
+        acc_rows = []
+        for mname, mdata in cmp_results.items():
+            if "error" in mdata:
+                continue
+            res = mdata.get("result")
+            if not res or res.error or res.forecast is None or res.forecast.empty:
+                continue
+            m = res.metrics or {}
+            dir_acc   = m.get("Directional Acc %", m.get("Directional Accuracy %", None))
+            mape_p    = m.get("MAPE % (price)", m.get("MAPE (%)", None))
+            rmse_r    = m.get("RMSE (ret)", m.get("RMSE", None))
+            try:
+                dir_acc_f = float(dir_acc) if dir_acc not in (None, "—") else 0.0
+            except Exception:
+                dir_acc_f = 0.0
+            try:
+                mape_f = float(mape_p) if mape_p not in (None, "—") else 9999.0
+            except Exception:
+                mape_f = 9999.0
+            acc_rows.append({
+                "model":    mname,
+                "dir_acc":  dir_acc_f,
+                "mape":     mape_f,
+                "dir_str":  f"{dir_acc_f:.1f}%" if dir_acc_f else "—",
+                "mape_str": f"{mape_f:.2f}%" if mape_f < 9999 else "—",
+                "rmse_str": f"{rmse_r}" if rmse_r not in (None, "—") else "—",
+            })
+
+        if acc_rows:
+            # Sort by directional accuracy desc, then MAPE asc
+            acc_rows.sort(key=lambda x: (-x["dir_acc"], x["mape"]))
+
+            # ── Winner banner ──
+            winner = acc_rows[0]
+            medals = ["🥇", "🥈", "🥉"] + ["  "] * 10
+            st.markdown(f"""
+            <div class="gw-card" style="background:linear-gradient(135deg,#5367FF15,#8B5CF615);
+                 border:1.5px solid #5367FF44;padding:16px 20px;margin-bottom:12px;">
+                <span style="font-size:0.75rem;color:#9CA3AF;letter-spacing:1px;">BEST MODEL</span><br>
+                <span style="font-size:1.4rem;font-weight:700;color:#5367FF;">
+                    🥇 {winner["model"]}
+                </span>
+                <span style="font-size:0.85rem;color:#6B7280;margin-left:10px;">
+                    Directional Accuracy: <b style="color:{GW_GREEN};">{winner["dir_str"]}</b>
+                    &nbsp;·&nbsp; Price MAPE: <b>{winner["mape_str"]}</b>
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # ── Ranked table ──
+            lb_data = []
+            for rank, row in enumerate(acc_rows):
+                score_color = GW_GREEN if row["dir_acc"] >= 55 else (GW_RED if row["dir_acc"] < 50 else "#F59E0B")
+                lb_data.append({
+                    "Rank":              f"{medals[rank]} #{rank+1}",
+                    "Model":             row["model"],
+                    "Directional Acc %": row["dir_str"],
+                    "Price MAPE %":      row["mape_str"],
+                    "RMSE (ret)":        row["rmse_str"],
+                    "Accuracy Grade":    "A" if row["dir_acc"] >= 60 else ("B" if row["dir_acc"] >= 55 else ("C" if row["dir_acc"] >= 50 else "D")),
+                })
+            lb_df = pd.DataFrame(lb_data).set_index("Rank")
+            st.dataframe(lb_df, use_container_width=True)
+
+            st.caption(
+                "Directional Acc % = % of test days model correctly predicted up/down direction  ·  "
+                "Price MAPE % = mean absolute % error on reconstructed price  ·  "
+                "Grade: A≥60% · B≥55% · C≥50% · D<50%"
+            )
+
+        # ── Consensus card ────────────────────────────────────────────────────
+        buy_count  = sum(1 for r in rows if r.get("Signal") == "🟢 BUY")
+        sell_count = sum(1 for r in rows if r.get("Signal") == "🔴 SELL")
+        total_sig  = buy_count + sell_count
+        if total_sig > 0:
+            consensus_color = GW_GREEN if buy_count >= sell_count else GW_RED
+            consensus_label = "BUY" if buy_count >= sell_count else "SELL"
+            st.markdown(f"""
+            <div class="gw-card" style="text-align:center;padding:16px;margin-top:8px;">
+                <span style="font-size:0.78rem;color:#9CA3AF;">MODEL CONSENSUS</span><br>
+                <span style="font-size:1.6rem;font-weight:700;color:{consensus_color};">
+                    {consensus_label}
+                </span>
+                <span style="font-size:0.82rem;color:#9CA3AF;margin-left:8px;">
+                    ({buy_count} BUY · {sell_count} SELL out of {total_sig} models)
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="gw-card" style="text-align:center;padding:24px;color:#9CA3AF;font-size:0.82rem;">
+            Click <b>⚖️ Compare All Models</b> in the sidebar to run all 5 models side-by-side.
         </div>
         """, unsafe_allow_html=True)
 

@@ -1,15 +1,27 @@
 """
-Quant-Grade Stock Price Prediction Engine
-==========================================
-Approach inspired by systematic equity research:
-  - Predict log-returns (stationary target, not raw price)
-  - Rich multi-timeframe feature engineering (60+ features)
-  - XGBoost & LightGBM with time-series walk-forward CV
-  - Weighted Ensemble (XGB + LGB + RF) blended by recent accuracy
-  - Monte Carlo GBM with GARCH-like volatility scaling
-  - ARIMA on log-returns as classical baseline
+Time-Series Stock Price Prediction Engine — v4
+===============================================
+Pure time-series models + ML models with TS-aware cross-validation:
 
-Each model returns a unified PredictionResult dataclass.
+  1. Prophet (Facebook)      — trend + weekly/yearly seasonality decomposition
+  2. Holt-Winters (ETS)      — exponential smoothing with damped trend
+  3. SARIMA                  — seasonal ARIMA with auto-order selection
+  4. Theta                   — theta decomposition method (often beats ARIMA)
+  5. XGBoost (TS-CV)         — gradient boosting with TimeSeriesSplit validation
+  6. LightGBM (TS-CV)        — gradient boosting with TimeSeriesSplit validation
+  7. TS Ensemble (Best)      — inverse-MAPE weighted blend of all above
+  8. Monte Carlo (GBM)       — GARCH-like simulation (range / stress test)
+
+Multi-step strategy for ML models
+----------------------------------
+  Days 1–5  : true walk-forward (real + predicted prices)
+  Days 6+   : ML signal decays toward long-run historical drift
+
+Honest note
+-----------
+No model achieves 100 % accuracy on stock prices. The realistic ceiling for
+directional accuracy on well-tuned models is ~55–65 %. The goal is maximum
+*calibrated* accuracy with reliable confidence bands.
 """
 
 from __future__ import annotations
@@ -17,9 +29,10 @@ import warnings
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Callable
 
 warnings.filterwarnings("ignore")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Result container
@@ -49,46 +62,60 @@ def _rmse(a: np.ndarray, p: np.ndarray) -> float:
 
 def _mape(a: np.ndarray, p: np.ndarray) -> float:
     mask = np.abs(a) > 1e-8
-    return float(np.mean(np.abs((a[mask] - p[mask]) / a[mask])) * 100)
+    return float(np.mean(np.abs((a[mask] - p[mask]) / a[mask])) * 100) if mask.any() else 0.0
 
 
 def _directional_accuracy(a: np.ndarray, p: np.ndarray) -> float:
-    """% of times model correctly predicts up/down direction."""
     return float(np.mean(np.sign(a) == np.sign(p)) * 100)
 
 
+def _prices_from_returns(last_price: float, log_returns: np.ndarray) -> np.ndarray:
+    return last_price * np.exp(np.cumsum(log_returns))
+
+
+def _ci_from_residuals(
+    forecast: np.ndarray,
+    residuals: np.ndarray,
+    confidence: float = 0.90,
+) -> tuple[np.ndarray, np.ndarray]:
+    """sqrt(t)-growing CI from residual std — standard TS uncertainty propagation."""
+    std_r   = float(np.std(residuals)) if len(residuals) > 1 else float(np.abs(forecast).mean()) * 0.02
+    z       = 1.645 if confidence == 0.90 else 1.96
+    t_arr   = np.arange(1, len(forecast) + 1)
+    upper   = forecast + z * std_r * np.sqrt(t_arr)
+    lower   = forecast - z * std_r * np.sqrt(t_arr)
+    lower   = np.maximum(lower, forecast * 0.5)   # floor at 50% of forecast
+    return upper, lower
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Feature engineering  — 60+ features across multiple timeframes
+# Feature engineering for ML models — 80+ features
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _build_features(prices: pd.Series) -> pd.DataFrame:
-    """
-    Build a comprehensive feature matrix from a price series.
-    Target: next-day log return (added as 'target' column).
-    All features are computed from data available at time t (no lookahead).
-    """
     df = pd.DataFrame({"price": prices.values}, index=prices.index)
     c  = df["price"]
-    lr = np.log(c / c.shift(1))  # daily log returns
+    lr = np.log(c / c.shift(1))
 
-    # ── Lagged log returns ──
     for lag in [1, 2, 3, 4, 5, 10, 21]:
         df[f"ret_lag_{lag}"] = lr.shift(lag)
 
-    # ── Multi-timeframe momentum ──
+    df["ret_cross_1"] = lr.shift(1) * lr.shift(2)
+    df["ret_cross_5"] = lr.shift(1) * lr.shift(5)
+
     for w in [5, 10, 21, 63]:
-        df[f"mom_{w}"]     = np.log(c / c.shift(w))
+        df[f"mom_{w}"]      = np.log(c / c.shift(w))
         df[f"mom_norm_{w}"] = df[f"mom_{w}"] / (lr.rolling(w).std() * np.sqrt(w) + 1e-8)
 
-    # ── Price vs Moving Averages (cross-sectional signal) ──
-    for w in [5, 10, 20, 50, 100, 200]:
-        ma = c.rolling(w).mean()
-        df[f"price_ma_{w}"] = (c / ma) - 1
+    df["accel_5_10"]  = df["mom_5"]  - df["mom_10"]
+    df["accel_10_21"] = df["mom_10"] - df["mom_21"]
+    df["accel_21_63"] = df["mom_21"] - df["mom_63"]
 
-    # ── EMA cross signals ──
+    for w in [5, 10, 20, 50, 100, 200]:
+        df[f"price_ma_{w}"] = (c / c.rolling(w).mean()) - 1
+
     for span in [9, 21, 55]:
-        ema = c.ewm(span=span, adjust=False).mean()
-        df[f"price_ema_{span}"] = (c / ema) - 1
+        df[f"price_ema_{span}"] = (c / c.ewm(span=span, adjust=False).mean()) - 1
 
     ema12 = c.ewm(span=12, adjust=False).mean()
     ema26 = c.ewm(span=26, adjust=False).mean()
@@ -99,15 +126,12 @@ def _build_features(prices: pd.Series) -> pd.DataFrame:
     df["macd_hist_norm"] = (macd - sig) / (c + 1e-8)
     df["macd_above_sig"] = (macd > sig).astype(float)
 
-    # ── RSI at multiple periods ──
     for period in [9, 14, 21]:
         delta = c.diff()
         gain  = delta.clip(lower=0).rolling(period).mean()
         loss  = (-delta.clip(upper=0)).rolling(period).mean()
-        rs    = gain / (loss + 1e-8)
-        df[f"rsi_{period}"] = (100 - 100 / (1 + rs)) / 100  # normalised 0–1
+        df[f"rsi_{period}"] = (100 - 100 / (1 + gain / (loss + 1e-8))) / 100
 
-    # ── Volatility (realised) at multiple windows ──
     for w in [5, 10, 21, 63]:
         df[f"rvol_{w}"] = lr.rolling(w).std() * np.sqrt(252)
 
@@ -115,369 +139,581 @@ def _build_features(prices: pd.Series) -> pd.DataFrame:
     df["vol_ratio_21_63"] = df["rvol_21"] / (df["rvol_63"]  + 1e-8)
     df["high_vol_regime"] = (df["rvol_21"] > df["rvol_63"]).astype(float)
 
-    # ── Bollinger Band position & width ──
+    for w in [10, 21]:
+        df[f"skew_{w}"] = lr.rolling(w).skew()
+    df["kurt_21"] = lr.rolling(21).kurt()
+
+    for w in [20, 50]:
+        mu    = c.rolling(w).mean()
+        sigma = c.rolling(w).std()
+        df[f"zscore_{w}"] = (c - mu) / (sigma + 1e-8)
+
     for w in [10, 20]:
         ma  = c.rolling(w).mean()
         std = c.rolling(w).std()
-        df[f"bb_pos_{w}"]   = (c - ma) / (2 * std + 1e-8)   # -1=lower, +1=upper
+        df[f"bb_pos_{w}"]   = (c - ma) / (2 * std + 1e-8)
         df[f"bb_width_{w}"] = (4 * std) / (ma + 1e-8)
 
-    # ── Stochastic oscillator ──
+    for w in [20, 60]:
+        df[f"drawdown_{w}"] = (c - c.rolling(w).max()) / (c.rolling(w).max() + 1e-8)
+
     for w in [14, 21]:
         lo = c.rolling(w).min()
         hi = c.rolling(w).max()
         df[f"stoch_{w}"] = (c - lo) / (hi - lo + 1e-8)
 
-    # ── Williams %R ──
     hi14 = c.rolling(14).max()
     lo14 = c.rolling(14).min()
     df["williams_r"] = (hi14 - c) / (hi14 - lo14 + 1e-8)
 
-    # ── 52-week range position ──
-    df["pos_52w"] = (c - c.rolling(252, min_periods=63).min()) / \
-                    (c.rolling(252, min_periods=63).max() -
-                     c.rolling(252, min_periods=63).min() + 1e-8)
+    lo52 = c.rolling(252, min_periods=63).min()
+    hi52 = c.rolling(252, min_periods=63).max()
+    df["pos_52w"] = (c - lo52) / (hi52 - lo52 + 1e-8)
 
-    # ── Calendar features ──
     idx = pd.DatetimeIndex(prices.index)
     df["day_of_week"] = idx.dayofweek / 4.0
     df["month"]       = idx.month / 12.0
     df["quarter"]     = (idx.month - 1) // 3 / 3.0
+    df["t_norm"]      = np.arange(len(df)) / max(len(df) - 1, 1)
 
-    # ── Normalised time trend ──
-    df["t_norm"] = np.arange(len(df)) / max(len(df) - 1, 1)
-
-    # ── Target: next-day log return ──
     df["target"] = lr.shift(-1)
-
     df.dropna(inplace=True)
     return df
 
 
-def _prices_from_returns(last_price: float, log_returns: np.ndarray) -> np.ndarray:
-    """Reconstruct price path from log returns."""
-    return last_price * np.exp(np.cumsum(log_returns))
+# ─────────────────────────────────────────────────────────────────────────────
+# Hybrid multi-step forecast for ML models
+# ─────────────────────────────────────────────────────────────────────────────
 
+def _hybrid_ml_forecast(
+    predict_fn: Callable,
+    scaler,
+    feat_cols: list,
+    prices: pd.Series,
+    horizon: int,
+    wfwd_steps: int = 5,
+) -> tuple[np.ndarray, float]:
+    last_price = float(prices.iloc[-1])
+    hist_lr    = np.log(prices / prices.shift(1)).dropna().values
+    hist_mean  = float(np.mean(hist_lr))
+    wfwd_steps = min(wfwd_steps, horizon)
 
-def _bootstrap_ci(
-    residuals: np.ndarray,
-    forecast_vals: np.ndarray,
-    n_boot: int = 500,
-    confidence: float = 0.90,
-    last_price: float = 100.0,
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Bootstrap confidence intervals on the price forecast.
-    Resample residuals, accumulate as log returns, get price distribution.
-    """
-    alpha = (1 - confidence) / 2
-    rng   = np.random.default_rng(42)
-    h     = len(forecast_vals)
-    boot_paths = np.zeros((n_boot, h))
+    ext_prices  = prices.copy()
+    forecast_lr = []
 
-    for b in range(n_boot):
-        noise = rng.choice(residuals, size=h, replace=True)
-        boot_lr = forecast_vals + noise            # perturbed log returns
-        boot_paths[b] = _prices_from_returns(last_price, boot_lr)
+    for _ in range(wfwd_steps):
+        fdf      = _build_features(ext_prices)
+        last_row = fdf[feat_cols].iloc[[-1]].values
+        lr_pred  = float(predict_fn(scaler.transform(last_row)))
+        forecast_lr.append(lr_pred)
+        next_price = float(ext_prices.iloc[-1]) * np.exp(lr_pred)
+        next_date  = _future_business_dates(ext_prices.index[-1], 1)[0]
+        ext_prices = pd.concat([ext_prices,
+                                pd.Series([next_price], index=[next_date])])
 
-    upper = np.percentile(boot_paths, (1 - alpha) * 100, axis=0)
-    lower = np.percentile(boot_paths, alpha * 100, axis=0)
-    return upper, lower
+    if horizon > wfwd_steps:
+        ml_drift = float(np.mean(forecast_lr))
+        for i in range(1, horizon - wfwd_steps + 1):
+            decay = 0.90 ** i
+            forecast_lr.append(ml_drift * decay + hist_mean * (1.0 - decay))
+
+    return np.array(forecast_lr[:horizon]), last_price
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. XGBoost — primary model
+# 1. Prophet — trend + seasonality decomposition
 # ─────────────────────────────────────────────────────────────────────────────
 
-def xgboost_forecast(
+def prophet_forecast(
     prices: pd.Series,
     horizon: int = 30,
-    test_size: float = 0.15,
+    test_size: float = 0.10,
 ) -> PredictionResult:
-    """
-    XGBoost on 60+ features predicting log returns.
-    Walk-forward one step at a time for multi-step horizon.
-    """
     try:
-        from xgboost import XGBRegressor
-        from sklearn.preprocessing import RobustScaler
+        from prophet import Prophet
 
-        df        = _build_features(prices)
-        feat_cols = [c for c in df.columns if c not in ("price", "target")]
-        X = df[feat_cols].values
-        y = df["target"].values          # log returns
+        # Strip timezone for Prophet
+        idx = prices.index
+        if hasattr(idx, "tz") and idx.tz is not None:
+            idx = idx.tz_localize(None)
 
-        n_test  = max(int(len(X) * test_size), 20)
-        X_train, X_test = X[:-n_test], X[-n_test:]
-        y_train, y_test = y[:-n_test], y[-n_test:]
+        n_test    = max(int(len(prices) * test_size), 5)
+        train_df  = pd.DataFrame({"ds": idx[:-n_test], "y": prices.values[:-n_test]})
+        test_df   = pd.DataFrame({"ds": idx[-n_test:],  "y": prices.values[-n_test:]})
 
-        scaler  = RobustScaler()
-        Xtr_sc  = scaler.fit_transform(X_train)
-        Xte_sc  = scaler.transform(X_test)
-
-        model = XGBRegressor(
-            n_estimators     = 500,
-            learning_rate    = 0.03,
-            max_depth        = 5,
-            subsample        = 0.8,
-            colsample_bytree = 0.7,
-            reg_alpha        = 0.1,
-            reg_lambda       = 1.0,
-            random_state     = 42,
-            n_jobs           = -1,
-            verbosity        = 0,
+        model = Prophet(
+            changepoint_prior_scale  = 0.05,
+            seasonality_prior_scale  = 10.0,
+            daily_seasonality        = False,
+            weekly_seasonality       = True,
+            yearly_seasonality       = True,
+            uncertainty_samples      = 300,
+            interval_width           = 0.90,
         )
-        model.fit(Xtr_sc, y_train,
-                  eval_set=[(Xte_sc, y_test)],
-                  verbose=False)
+        model.fit(train_df)
 
-        y_pred   = model.predict(Xte_sc)
-        residuals = y_test - y_pred
-        rmse_val  = _rmse(y_test, y_pred)
-        mape_val  = _mape(y_test, y_pred)
-        dir_acc   = _directional_accuracy(y_test, y_pred)
+        test_pred   = model.predict(test_df[["ds"]])["yhat"].values
+        rmse_val    = _rmse(test_df["y"].values, test_pred)
+        mape_val    = _mape(test_df["y"].values, test_pred)
+        residuals   = test_df["y"].values - test_pred
+        dir_acc     = _directional_accuracy(
+            np.diff(test_df["y"].values), np.diff(test_pred))
 
-        # Walk-forward forecast
-        ext_prices    = prices.copy()
-        forecast_lr   = []
-        last_price    = float(prices.iloc[-1])
+        # Refit on full series
+        full_df    = pd.DataFrame({"ds": idx, "y": prices.values})
+        model_full = Prophet(
+            changepoint_prior_scale = 0.05,
+            seasonality_prior_scale = 10.0,
+            daily_seasonality       = False,
+            weekly_seasonality      = True,
+            yearly_seasonality      = True,
+            uncertainty_samples     = 300,
+            interval_width          = 0.90,
+        )
+        model_full.fit(full_df)
 
-        for _ in range(horizon):
-            fdf      = _build_features(ext_prices)
-            last_row = fdf[feat_cols].iloc[[-1]].values
-            last_sc  = scaler.transform(last_row)
-            lr_pred  = float(model.predict(last_sc)[0])
-            forecast_lr.append(lr_pred)
-            next_price = ext_prices.iloc[-1] * np.exp(lr_pred)
-            next_date  = _future_business_dates(ext_prices.index[-1], 1)[0]
-            ext_prices = pd.concat([ext_prices,
-                                    pd.Series([next_price], index=[next_date])])
-
-        forecast_lr   = np.array(forecast_lr)
-        forecast_prices = _prices_from_returns(last_price, forecast_lr)
-        future_idx    = _future_business_dates(prices.index[-1], horizon)
-        upper, lower  = _bootstrap_ci(residuals, forecast_lr,
-                                       last_price=last_price)
+        future_idx = _future_business_dates(prices.index[-1], horizon)
+        future_df  = pd.DataFrame({"ds": future_idx.tz_localize(None)
+                                   if future_idx.tz is None else future_idx})
+        fc         = model_full.predict(future_df)
 
         return PredictionResult(
-            model_name  = "XGBoost",
-            forecast    = pd.Series(forecast_prices, index=future_idx, name="XGBoost"),
-            upper_bound = pd.Series(upper, index=future_idx),
-            lower_bound = pd.Series(lower, index=future_idx),
+            model_name  = "Prophet",
+            forecast    = pd.Series(fc["yhat"].values, index=future_idx, name="Prophet"),
+            upper_bound = pd.Series(fc["yhat_upper"].values, index=future_idx),
+            lower_bound = pd.Series(fc["yhat_lower"].values, index=future_idx),
             metrics     = {
-                "RMSE (ret)":        round(rmse_val, 6),
-                "MAPE (ret) %":      round(mape_val, 2),
+                "RMSE (price)":      round(rmse_val, 2),
+                "MAPE % (price)":    round(mape_val, 2),
                 "Directional Acc %": round(dir_acc, 1),
-                "Features":          len(feat_cols),
             },
         )
     except Exception as e:
-        return PredictionResult(model_name="XGBoost", forecast=pd.Series(), error=str(e))
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. LightGBM
-# ─────────────────────────────────────────────────────────────────────────────
-
-def lightgbm_forecast(
-    prices: pd.Series,
-    horizon: int = 30,
-    test_size: float = 0.15,
-) -> PredictionResult:
-    """
-    LightGBM on the same feature set. Faster than XGBoost,
-    slightly better on high-cardinality features.
-    """
-    try:
-        import lightgbm as lgb
-        from sklearn.preprocessing import RobustScaler
-
-        df        = _build_features(prices)
-        feat_cols = [c for c in df.columns if c not in ("price", "target")]
-        X = df[feat_cols].values
-        y = df["target"].values
-
-        n_test  = max(int(len(X) * test_size), 20)
-        X_train, X_test = X[:-n_test], X[-n_test:]
-        y_train, y_test = y[:-n_test], y[-n_test:]
-
-        scaler  = RobustScaler()
-        Xtr_sc  = scaler.fit_transform(X_train)
-        Xte_sc  = scaler.transform(X_test)
-
-        model = lgb.LGBMRegressor(
-            n_estimators     = 500,
-            learning_rate    = 0.03,
-            max_depth        = 6,
-            num_leaves       = 31,
-            subsample        = 0.8,
-            colsample_bytree = 0.7,
-            reg_alpha        = 0.1,
-            reg_lambda       = 1.0,
-            random_state     = 42,
-            n_jobs           = -1,
-            verbose          = -1,
-        )
-        model.fit(Xtr_sc, y_train,
-                  eval_set=[(Xte_sc, y_test)],
-                  callbacks=[lgb.early_stopping(50, verbose=False),
-                              lgb.log_evaluation(-1)])
-
-        y_pred    = model.predict(Xte_sc)
-        residuals = y_test - y_pred
-        rmse_val  = _rmse(y_test, y_pred)
-        mape_val  = _mape(y_test, y_pred)
-        dir_acc   = _directional_accuracy(y_test, y_pred)
-
-        ext_prices  = prices.copy()
-        forecast_lr = []
-        last_price  = float(prices.iloc[-1])
-
-        for _ in range(horizon):
-            fdf      = _build_features(ext_prices)
-            last_row = fdf[feat_cols].iloc[[-1]].values
-            last_sc  = scaler.transform(last_row)
-            lr_pred  = float(model.predict(last_sc)[0])
-            forecast_lr.append(lr_pred)
-            next_price = ext_prices.iloc[-1] * np.exp(lr_pred)
-            next_date  = _future_business_dates(ext_prices.index[-1], 1)[0]
-            ext_prices = pd.concat([ext_prices,
-                                    pd.Series([next_price], index=[next_date])])
-
-        forecast_lr     = np.array(forecast_lr)
-        forecast_prices = _prices_from_returns(last_price, forecast_lr)
-        future_idx      = _future_business_dates(prices.index[-1], horizon)
-        upper, lower    = _bootstrap_ci(residuals, forecast_lr,
-                                        last_price=last_price)
-
-        return PredictionResult(
-            model_name  = "LightGBM",
-            forecast    = pd.Series(forecast_prices, index=future_idx, name="LightGBM"),
-            upper_bound = pd.Series(upper, index=future_idx),
-            lower_bound = pd.Series(lower, index=future_idx),
-            metrics     = {
-                "RMSE (ret)":        round(rmse_val, 6),
-                "MAPE (ret) %":      round(mape_val, 2),
-                "Directional Acc %": round(dir_acc, 1),
-                "Features":          len(feat_cols),
-            },
-        )
-    except Exception as e:
-        return PredictionResult(model_name="LightGBM", forecast=pd.Series(), error=str(e))
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. Weighted Ensemble  (XGB + LGB + RF, blended by test accuracy)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def ensemble_forecast(
-    prices: pd.Series,
-    horizon: int = 30,
-    test_size: float = 0.15,
-) -> PredictionResult:
-    """
-    Trains XGBoost, LightGBM and Random Forest independently.
-    Blends walk-forward forecasts weighted by inverse RMSE on the test set.
-    Confidence band via bootstrap of ensemble residuals.
-    """
-    try:
-        from xgboost import XGBRegressor
-        import lightgbm as lgb
-        from sklearn.ensemble import RandomForestRegressor
-        from sklearn.preprocessing import RobustScaler
-
-        df        = _build_features(prices)
-        feat_cols = [c for c in df.columns if c not in ("price", "target")]
-        X = df[feat_cols].values
-        y = df["target"].values
-
-        n_test  = max(int(len(X) * test_size), 20)
-        X_train, X_test = X[:-n_test], X[-n_test:]
-        y_train, y_test = y[:-n_test], y[-n_test:]
-
-        scaler  = RobustScaler()
-        Xtr_sc  = scaler.fit_transform(X_train)
-        Xte_sc  = scaler.transform(X_test)
-
-        # ── XGBoost ──
-        xgb = XGBRegressor(n_estimators=500, learning_rate=0.03, max_depth=5,
-                            subsample=0.8, colsample_bytree=0.7,
-                            reg_alpha=0.1, reg_lambda=1.0,
-                            random_state=42, n_jobs=-1, verbosity=0)
-        xgb.fit(Xtr_sc, y_train, eval_set=[(Xte_sc, y_test)], verbose=False)
-
-        # ── LightGBM ──
-        lgbm = lgb.LGBMRegressor(n_estimators=500, learning_rate=0.03, max_depth=6,
-                                  num_leaves=31, subsample=0.8, colsample_bytree=0.7,
-                                  reg_alpha=0.1, reg_lambda=1.0,
-                                  random_state=42, n_jobs=-1, verbose=-1)
-        lgbm.fit(Xtr_sc, y_train,
-                 eval_set=[(Xte_sc, y_test)],
-                 callbacks=[lgb.early_stopping(50, verbose=False),
-                             lgb.log_evaluation(-1)])
-
-        # ── Random Forest ──
-        rf = RandomForestRegressor(n_estimators=300, max_depth=8,
-                                   max_features=0.7, random_state=42, n_jobs=-1)
-        rf.fit(Xtr_sc, y_train)
-
-        # ── Compute weights (inverse RMSE) ──
-        models     = [xgb, lgbm, rf]
-        model_names = ["XGB", "LGB", "RF"]
-        rmses = [_rmse(y_test, m.predict(Xte_sc)) for m in models]
-        inv_rmse = [1.0 / (r + 1e-8) for r in rmses]
-        total    = sum(inv_rmse)
-        weights  = [w / total for w in inv_rmse]
-
-        # ── Blended test prediction for residuals ──
-        blended_test = sum(w * m.predict(Xte_sc) for w, m in zip(weights, models))
-        residuals    = y_test - blended_test
-        dir_acc      = _directional_accuracy(y_test, blended_test)
-
-        # ── Walk-forward blended forecast ──
-        ext_prices  = prices.copy()
-        forecast_lr = []
-        last_price  = float(prices.iloc[-1])
-
-        for _ in range(horizon):
-            fdf      = _build_features(ext_prices)
-            last_row = fdf[feat_cols].iloc[[-1]].values
-            last_sc  = scaler.transform(last_row)
-            preds    = [float(m.predict(last_sc)[0]) for m in models]
-            lr_pred  = sum(w * p for w, p in zip(weights, preds))
-            forecast_lr.append(lr_pred)
-            next_price = ext_prices.iloc[-1] * np.exp(lr_pred)
-            next_date  = _future_business_dates(ext_prices.index[-1], 1)[0]
-            ext_prices = pd.concat([ext_prices,
-                                    pd.Series([next_price], index=[next_date])])
-
-        forecast_lr     = np.array(forecast_lr)
-        forecast_prices = _prices_from_returns(last_price, forecast_lr)
-        future_idx      = _future_business_dates(prices.index[-1], horizon)
-        upper, lower    = _bootstrap_ci(residuals, forecast_lr,
-                                        last_price=last_price)
-
-        w_str = ", ".join(f"{n}:{w:.2f}" for n, w in zip(model_names, weights))
-        return PredictionResult(
-            model_name  = "Ensemble (XGB+LGB+RF)",
-            forecast    = pd.Series(forecast_prices, index=future_idx, name="Ensemble"),
-            upper_bound = pd.Series(upper, index=future_idx),
-            lower_bound = pd.Series(lower, index=future_idx),
-            metrics     = {
-                "Directional Acc %": round(dir_acc, 1),
-                "Model Weights":     w_str,
-                "XGB RMSE":          round(rmses[0], 6),
-                "LGB RMSE":          round(rmses[1], 6),
-                "RF RMSE":           round(rmses[2], 6),
-            },
-        )
-    except Exception as e:
-        return PredictionResult(model_name="Ensemble (XGB+LGB+RF)",
+        return PredictionResult(model_name="Prophet",
                                 forecast=pd.Series(), error=str(e))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Monte Carlo — GBM with GARCH-like volatility
+# 2. Holt-Winters ETS — exponential smoothing with damped trend
+# ─────────────────────────────────────────────────────────────────────────────
+
+def holtwinters_forecast(
+    prices: pd.Series,
+    horizon: int = 30,
+    test_size: float = 0.10,
+) -> PredictionResult:
+    try:
+        from statsmodels.tsa.holtwinters import ExponentialSmoothing
+
+        n_test   = max(int(len(prices) * test_size), 5)
+        train_p  = prices.iloc[:-n_test]
+        test_p   = prices.iloc[-n_test:]
+
+        def _fit(series):
+            for trend, damped in [("add", True), ("add", False), ("mul", True)]:
+                try:
+                    return ExponentialSmoothing(
+                        series, trend=trend, seasonal=None, damped_trend=damped,
+                        initialization_method="estimated",
+                    ).fit(optimized=True, remove_bias=True)
+                except Exception:
+                    continue
+            return ExponentialSmoothing(series, trend="add", seasonal=None).fit()
+
+        fit_test   = _fit(train_p)
+        pred_test  = fit_test.forecast(n_test).values
+        residuals  = test_p.values - pred_test
+        rmse_val   = _rmse(test_p.values, pred_test)
+        mape_val   = _mape(test_p.values, pred_test)
+        dir_acc    = _directional_accuracy(np.diff(test_p.values), np.diff(pred_test))
+
+        fit_full   = _fit(prices)
+        fc         = fit_full.forecast(horizon).values
+        future_idx = _future_business_dates(prices.index[-1], horizon)
+        upper, lower = _ci_from_residuals(fc, residuals)
+
+        return PredictionResult(
+            model_name  = "Holt-Winters (ETS)",
+            forecast    = pd.Series(fc,    index=future_idx, name="HW"),
+            upper_bound = pd.Series(upper, index=future_idx),
+            lower_bound = pd.Series(lower, index=future_idx),
+            metrics     = {
+                "RMSE (price)":      round(rmse_val, 2),
+                "MAPE % (price)":    round(mape_val, 2),
+                "Directional Acc %": round(dir_acc, 1),
+            },
+        )
+    except Exception as e:
+        return PredictionResult(model_name="Holt-Winters (ETS)",
+                                forecast=pd.Series(), error=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. SARIMA — seasonal ARIMA with auto-order selection
+# ─────────────────────────────────────────────────────────────────────────────
+
+def sarima_forecast(
+    prices: pd.Series,
+    horizon: int = 30,
+    test_size: float = 0.10,
+) -> PredictionResult:
+    try:
+        from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+        # Limit to last 750 trading days for speed
+        prices = prices.iloc[-750:] if len(prices) > 750 else prices
+
+        log_p  = np.log(prices.values.astype(float))
+        n_test = max(int(len(log_p) * test_size), 5)
+
+        # Auto select best ARIMA order by AIC
+        candidates = [(1,1,1),(2,1,2),(1,1,2),(2,1,1),(1,1,3),(3,1,1)]
+        best_aic, best_order = np.inf, (2, 1, 2)
+        for order in candidates:
+            try:
+                aic = SARIMAX(
+                    log_p[:-n_test], order=order,
+                    seasonal_order=(1, 0, 1, 5),   # weekly seasonality
+                    enforce_stationarity=False,
+                    enforce_invertibility=False,
+                ).fit(disp=False).aic
+                if aic < best_aic:
+                    best_aic, best_order = aic, order
+            except Exception:
+                continue
+
+        seasonal_order = (1, 0, 1, 5)
+        fit_test = SARIMAX(
+            log_p[:-n_test], order=best_order,
+            seasonal_order=seasonal_order,
+            enforce_stationarity=False, enforce_invertibility=False,
+        ).fit(disp=False)
+        pred_log    = np.array(fit_test.forecast(n_test)).flatten()
+        pred_test   = np.exp(pred_log)
+        actual_test = np.exp(log_p[-n_test:])
+        residuals   = actual_test - pred_test
+        rmse_val    = _rmse(actual_test, pred_test)
+        mape_val    = _mape(actual_test, pred_test)
+        dir_acc     = _directional_accuracy(np.diff(actual_test), np.diff(pred_test))
+
+        fit_full = SARIMAX(
+            log_p, order=best_order,
+            seasonal_order=seasonal_order,
+            enforce_stationarity=False, enforce_invertibility=False,
+        ).fit(disp=False)
+        fc_obj     = fit_full.get_forecast(steps=horizon)
+        fc_mean    = np.exp(np.array(fc_obj.predicted_mean).flatten())
+        ci         = fc_obj.conf_int(alpha=0.10)
+        if hasattr(ci, "iloc"):
+            fc_lower = np.exp(ci.iloc[:, 0].values)
+            fc_upper = np.exp(ci.iloc[:, 1].values)
+        else:
+            ci_arr   = np.array(ci)
+            fc_lower = np.exp(ci_arr[:, 0])
+            fc_upper = np.exp(ci_arr[:, 1])
+
+        future_idx = _future_business_dates(prices.index[-1], horizon)
+        return PredictionResult(
+            model_name  = "SARIMA",
+            forecast    = pd.Series(fc_mean,  index=future_idx, name="SARIMA"),
+            upper_bound = pd.Series(fc_upper, index=future_idx),
+            lower_bound = pd.Series(fc_lower, index=future_idx),
+            metrics     = {
+                "Order":             str(best_order),
+                "Seasonal":          str(seasonal_order),
+                "AIC":               round(best_aic, 1),
+                "RMSE (price)":      round(rmse_val, 2),
+                "MAPE % (price)":    round(mape_val, 2),
+                "Directional Acc %": round(dir_acc, 1),
+            },
+        )
+    except Exception as e:
+        return PredictionResult(model_name="SARIMA",
+                                forecast=pd.Series(), error=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Theta — theta decomposition method
+# ─────────────────────────────────────────────────────────────────────────────
+
+def theta_forecast(
+    prices: pd.Series,
+    horizon: int = 30,
+    test_size: float = 0.10,
+) -> PredictionResult:
+    try:
+        from statsmodels.tsa.forecasting.theta import ThetaModel
+
+        n_test   = max(int(len(prices) * test_size), 5)
+        train_p  = prices.iloc[:-n_test]
+        test_p   = prices.iloc[-n_test:]
+
+        fit_test  = ThetaModel(train_p, period=5, deseasonalize=False).fit()
+        pred_test = np.array(fit_test.forecast(n_test)).flatten()
+        residuals = test_p.values - pred_test
+        rmse_val  = _rmse(test_p.values, pred_test)
+        mape_val  = _mape(test_p.values, pred_test)
+        dir_acc   = _directional_accuracy(np.diff(test_p.values), np.diff(pred_test))
+
+        fit_full  = ThetaModel(prices, period=5, deseasonalize=False).fit()
+        fc        = np.array(fit_full.forecast(horizon)).flatten()
+        ci_df     = fit_full.prediction_intervals(horizon, alpha=0.10)
+        if hasattr(ci_df, "iloc"):
+            fc_upper = ci_df.iloc[:, -1].values
+            fc_lower = ci_df.iloc[:, 0].values
+        else:
+            fc_upper, fc_lower = _ci_from_residuals(fc, residuals)
+
+        future_idx = _future_business_dates(prices.index[-1], horizon)
+        return PredictionResult(
+            model_name  = "Theta",
+            forecast    = pd.Series(fc,        index=future_idx, name="Theta"),
+            upper_bound = pd.Series(fc_upper,  index=future_idx),
+            lower_bound = pd.Series(fc_lower,  index=future_idx),
+            metrics     = {
+                "RMSE (price)":      round(rmse_val, 2),
+                "MAPE % (price)":    round(mape_val, 2),
+                "Directional Acc %": round(dir_acc, 1),
+            },
+        )
+    except Exception as e:
+        return PredictionResult(model_name="Theta",
+                                forecast=pd.Series(), error=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5 & 6. XGBoost & LightGBM with TimeSeriesSplit cross-validation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ml_ts_forecast(
+    model_name: str,
+    fitter,
+    prices: pd.Series,
+    horizon: int = 30,
+    n_splits: int = 3,
+    test_size: float = 0.15,
+) -> PredictionResult:
+    """
+    Generic ML time-series forecaster.
+    Uses TimeSeriesSplit for cross-validated accuracy metrics,
+    then refits on full data for the actual forecast.
+    """
+    try:
+        from sklearn.preprocessing import RobustScaler
+        from sklearn.model_selection import TimeSeriesSplit
+
+        df        = _build_features(prices)
+        feat_cols = [c for c in df.columns if c not in ("price", "target")]
+        X = df[feat_cols].values
+        y = df["target"].values            # log returns
+
+        # ── Cross-validated accuracy via TimeSeriesSplit ──
+        tscv      = TimeSeriesSplit(n_splits=n_splits)
+        dir_accs  = []
+        mape_ps   = []
+        for tr_idx, val_idx in tscv.split(X):
+            if len(tr_idx) < 60:
+                continue
+            scaler_cv = RobustScaler()
+            Xtr = scaler_cv.fit_transform(X[tr_idx])
+            Xval = scaler_cv.transform(X[val_idx])
+            ytr, yval = y[tr_idx], y[val_idx]
+            m = fitter(Xtr, ytr, Xval, yval)
+            ypred = m.predict(Xval)
+            dir_accs.append(_directional_accuracy(yval, ypred))
+            # Price-level MAPE for val window
+            last_p = float(df["price"].values[tr_idx[-1]])
+            act_p  = _prices_from_returns(last_p, yval)
+            pred_p = _prices_from_returns(last_p, ypred)
+            mape_ps.append(_mape(act_p, pred_p))
+
+        avg_dir_acc = float(np.mean(dir_accs)) if dir_accs else 0.0
+        avg_mape_p  = float(np.mean(mape_ps))  if mape_ps  else 0.0
+
+        # ── Refit on full data for forecast ──
+        n_test          = max(int(len(X) * test_size), 20)
+        X_train, X_test = X[:-n_test], X[-n_test:]
+        y_train, y_test = y[:-n_test], y[-n_test:]
+
+        scaler  = RobustScaler()
+        Xtr_sc  = scaler.fit_transform(X_train)
+        Xte_sc  = scaler.transform(X_test)
+
+        model     = fitter(Xtr_sc, y_train, Xte_sc, y_test)
+        y_pred    = model.predict(Xte_sc)
+        residuals = y_test - y_pred
+
+        last_p_test = float(df["price"].values[-n_test - 1])
+        act_p_test  = _prices_from_returns(last_p_test, y_test)
+        pred_p_test = _prices_from_returns(last_p_test, y_pred)
+        mape_final  = _mape(act_p_test, pred_p_test)
+
+        forecast_lr, last_price = _hybrid_ml_forecast(
+            lambda X_sc: model.predict(X_sc)[0],
+            scaler, feat_cols, prices, horizon,
+        )
+        forecast_prices = _prices_from_returns(last_price, forecast_lr)
+        future_idx      = _future_business_dates(prices.index[-1], horizon)
+
+        # Bootstrap CI on price forecast
+        from sklearn.preprocessing import RobustScaler as _RS
+        alpha = 0.05
+        rng   = np.random.default_rng(42)
+        h     = len(forecast_lr)
+        paths = np.zeros((500, h))
+        for b in range(500):
+            noise   = rng.choice(residuals, size=h, replace=True)
+            paths[b] = _prices_from_returns(last_price, forecast_lr + noise)
+        upper = np.percentile(paths, 95, axis=0)
+        lower = np.percentile(paths, 5,  axis=0)
+
+        return PredictionResult(
+            model_name  = model_name,
+            forecast    = pd.Series(forecast_prices, index=future_idx, name=model_name),
+            upper_bound = pd.Series(upper, index=future_idx),
+            lower_bound = pd.Series(lower, index=future_idx),
+            metrics     = {
+                "CV Dir Acc % (avg)": round(avg_dir_acc, 1),
+                "CV MAPE % (avg)":    round(avg_mape_p, 2),
+                "MAPE % (price)":     round(mape_final, 2),
+                "Directional Acc %":  round(avg_dir_acc, 1),
+                "CV Folds":           len(dir_accs),
+                "Features":           len(feat_cols),
+            },
+        )
+    except Exception as e:
+        return PredictionResult(model_name=model_name,
+                                forecast=pd.Series(), error=str(e))
+
+
+def _fit_xgb(Xtr, ytr, Xte, yte):
+    from xgboost import XGBRegressor
+    m = XGBRegressor(
+        n_estimators=600, learning_rate=0.025, max_depth=5,
+        subsample=0.8, colsample_bytree=0.7,
+        reg_alpha=0.1, reg_lambda=1.0, min_child_weight=3,
+        random_state=42, n_jobs=-1, verbosity=0,
+    )
+    m.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=False)
+    return m
+
+
+def _fit_lgb(Xtr, ytr, Xte, yte):
+    import lightgbm as lgb
+    m = lgb.LGBMRegressor(
+        n_estimators=600, learning_rate=0.025, max_depth=6,
+        num_leaves=40, subsample=0.8, colsample_bytree=0.7,
+        reg_alpha=0.1, reg_lambda=1.0, min_child_samples=10,
+        random_state=42, n_jobs=-1, verbose=-1,
+    )
+    m.fit(Xtr, ytr,
+          eval_set=[(Xte, yte)],
+          callbacks=[lgb.early_stopping(60, verbose=False),
+                     lgb.log_evaluation(-1)])
+    return m
+
+
+def xgboost_ts_forecast(prices: pd.Series, horizon: int = 30, **kw) -> PredictionResult:
+    return _ml_ts_forecast("XGBoost (TS)", _fit_xgb, prices, horizon)
+
+
+def lightgbm_ts_forecast(prices: pd.Series, horizon: int = 30, **kw) -> PredictionResult:
+    return _ml_ts_forecast("LightGBM (TS)", _fit_lgb, prices, horizon)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. TS Ensemble — inverse-MAPE weighted blend of all models
+# ─────────────────────────────────────────────────────────────────────────────
+
+def ts_ensemble_forecast(
+    prices: pd.Series,
+    horizon: int = 30,
+) -> PredictionResult:
+    """
+    Runs all 6 time-series models independently.
+    Weights each model's price forecast by inverse test-MAPE.
+    Lower MAPE → higher weight.
+    """
+    runners = [
+        ("Prophet",           prophet_forecast),
+        ("Holt-Winters (ETS)", holtwinters_forecast),
+        ("SARIMA",            sarima_forecast),
+        ("Theta",             theta_forecast),
+        ("XGBoost (TS)",      xgboost_ts_forecast),
+        ("LightGBM (TS)",     lightgbm_ts_forecast),
+    ]
+    results = {}
+    for name, fn in runners:
+        r = fn(prices, horizon=horizon)
+        if not r.error and r.forecast is not None and not r.forecast.empty:
+            results[name] = r
+
+    if not results:
+        return PredictionResult(model_name="TS Ensemble (Best)",
+                                forecast=pd.Series(),
+                                error="All sub-models failed.")
+
+    # ── Compute inverse-MAPE weights ──
+    mapes = {}
+    for name, r in results.items():
+        m = r.metrics or {}
+        try:
+            mapes[name] = float(m.get("MAPE % (price)", m.get("CV MAPE % (avg)", 10.0)))
+        except Exception:
+            mapes[name] = 10.0
+
+    inv_mape = {n: 1.0 / (v + 1e-8) for n, v in mapes.items()}
+    total    = sum(inv_mape.values())
+    weights  = {n: v / total for n, v in inv_mape.items()}
+
+    # ── Blend price forecasts ──
+    future_idx = _future_business_dates(prices.index[-1], horizon)
+    blended    = np.zeros(horizon)
+    blended_u  = np.zeros(horizon)
+    blended_l  = np.zeros(horizon)
+
+    for name, r in results.items():
+        w    = weights[name]
+        fc   = r.forecast.reindex(future_idx, method="nearest").values[:horizon]
+        blended += w * fc
+        if r.upper_bound is not None and not r.upper_bound.empty:
+            blended_u += w * r.upper_bound.reindex(future_idx, method="nearest").values[:horizon]
+        else:
+            blended_u += w * fc * 1.05
+        if r.lower_bound is not None and not r.lower_bound.empty:
+            blended_l += w * r.lower_bound.reindex(future_idx, method="nearest").values[:horizon]
+        else:
+            blended_l += w * fc * 0.95
+
+    # Best model by weight
+    best_model = max(weights, key=weights.get)
+    w_str      = " | ".join(f"{n}:{w:.2f}" for n, w in
+                            sorted(weights.items(), key=lambda x: -x[1]))
+
+    # Overall blended MAPE (weighted average)
+    avg_mape = sum(mapes[n] * weights[n] for n in results)
+    avg_dacc = float(np.mean([
+        float(r.metrics.get("Directional Acc %", r.metrics.get("CV Dir Acc % (avg)", 0)))
+        for r in results.values()
+    ]))
+
+    return PredictionResult(
+        model_name  = "TS Ensemble (Best)",
+        forecast    = pd.Series(blended,   index=future_idx, name="TS_Ensemble"),
+        upper_bound = pd.Series(blended_u, index=future_idx),
+        lower_bound = pd.Series(blended_l, index=future_idx),
+        metrics     = {
+            "Directional Acc %": round(avg_dacc, 1),
+            "MAPE % (price)":    round(avg_mape, 2),
+            "Best sub-model":    best_model,
+            "Model weights":     w_str,
+            "Models blended":    len(results),
+        },
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Monte Carlo — GBM with GARCH-like volatility (unchanged)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def monte_carlo_forecast(
@@ -486,32 +722,23 @@ def monte_carlo_forecast(
     n_simulations: int = 5000,
     confidence: float = 0.90,
 ) -> PredictionResult:
-    """
-    Geometric Brownian Motion with GARCH(1,1)-like volatility scaling.
-    Uses recent realised vol to scale uncertainty (vol clustering).
-    """
     try:
         log_ret    = np.log(prices / prices.shift(1)).dropna()
         mu_daily   = float(log_ret.mean())
         long_vol   = float(log_ret.std())
-        recent_vol = float(log_ret.tail(21).std())  # recent 21-day vol
-        # Blend: start with recent vol, mean-revert toward long-run vol
-        vol_decay  = 0.94   # GARCH-like persistence
+        recent_vol = float(log_ret.tail(21).std())
+        vol_decay  = 0.94
         S0         = float(prices.iloc[-1])
 
-        rng = np.random.default_rng(42)
+        rng   = np.random.default_rng(42)
         paths = np.zeros((n_simulations, horizon))
 
         for t in range(horizon):
-            # Volatility decays from recent toward long-run (mean reversion)
             sigma_t = recent_vol * (vol_decay ** t) + long_vol * (1 - vol_decay ** t)
-            Z = rng.standard_normal(n_simulations)
-            if t == 0:
-                paths[:, t] = S0 * np.exp(
-                    (mu_daily - 0.5 * sigma_t ** 2) + sigma_t * Z)
-            else:
-                paths[:, t] = paths[:, t-1] * np.exp(
-                    (mu_daily - 0.5 * sigma_t ** 2) + sigma_t * Z)
+            Z    = rng.standard_normal(n_simulations)
+            prev = S0 if t == 0 else paths[:, t - 1]
+            paths[:, t] = prev * np.exp(
+                (mu_daily - 0.5 * sigma_t ** 2) + sigma_t * Z)
 
         alpha       = (1 - confidence) / 2
         median_path = np.median(paths, axis=0)
@@ -538,56 +765,6 @@ def monte_carlo_forecast(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. ARIMA on log-returns (classical baseline)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def arima_forecast(
-    prices: pd.Series,
-    horizon: int = 30,
-    order: tuple = (2, 1, 2),
-    test_size: float = 0.10,
-) -> PredictionResult:
-    try:
-        from statsmodels.tsa.arima.model import ARIMA
-
-        log_prices = np.log(prices.values.astype(float))
-        n_test     = max(int(len(log_prices) * test_size), 5)
-        train_log  = log_prices[:-n_test]
-        test_log   = log_prices[-n_test:]
-
-        model   = ARIMA(train_log, order=order)
-        fit     = model.fit()
-        tp_log  = fit.forecast(steps=n_test)
-        rmse_val = _rmse(np.exp(test_log), np.exp(tp_log))
-        mape_val = _mape(np.exp(test_log), np.exp(tp_log))
-
-        model_full = ARIMA(log_prices, order=order)
-        fit_full   = model_full.fit()
-        fc         = fit_full.get_forecast(steps=horizon)
-        fc_mean    = np.exp(np.array(fc.predicted_mean).flatten())
-        ci         = fc.conf_int(alpha=0.10)
-        if hasattr(ci, "iloc"):
-            fc_lower = np.exp(ci.iloc[:, 0].values)
-            fc_upper = np.exp(ci.iloc[:, 1].values)
-        else:
-            ci = np.array(ci)
-            fc_lower = np.exp(ci[:, 0])
-            fc_upper = np.exp(ci[:, 1])
-
-        future_idx = _future_business_dates(prices.index[-1], horizon)
-        return PredictionResult(
-            model_name  = "ARIMA",
-            forecast    = pd.Series(fc_mean,    index=future_idx, name="ARIMA"),
-            upper_bound = pd.Series(fc_upper,   index=future_idx),
-            lower_bound = pd.Series(fc_lower,   index=future_idx),
-            metrics     = {"RMSE": round(rmse_val, 2), "MAPE (%)": round(mape_val, 2)},
-        )
-    except Exception as e:
-        return PredictionResult(model_name="ARIMA",
-                                forecast=pd.Series(), error=str(e))
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Technical indicators (for charting — unchanged)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -598,11 +775,11 @@ def compute_technical_indicators(ohlcv: pd.DataFrame) -> pd.DataFrame:
     for w, name in [(20, "MA_20"), (50, "MA_50"), (200, "MA_200")]:
         df[name] = close.rolling(w).mean()
 
-    df["EMA_12"] = close.ewm(span=12, adjust=False).mean()
-    df["EMA_26"] = close.ewm(span=26, adjust=False).mean()
-    df["MACD"]         = df["EMA_12"] - df["EMA_26"]
-    df["MACD_Signal"]  = df["MACD"].ewm(span=9, adjust=False).mean()
-    df["MACD_Hist"]    = df["MACD"] - df["MACD_Signal"]
+    df["EMA_12"]      = close.ewm(span=12, adjust=False).mean()
+    df["EMA_26"]      = close.ewm(span=26, adjust=False).mean()
+    df["MACD"]        = df["EMA_12"] - df["EMA_26"]
+    df["MACD_Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+    df["MACD_Hist"]   = df["MACD"] - df["MACD_Signal"]
 
     delta = close.diff()
     gain  = delta.clip(lower=0).rolling(14).mean()
@@ -633,11 +810,14 @@ def compute_technical_indicators(ohlcv: pd.DataFrame) -> pd.DataFrame:
 # ─────────────────────────────────────────────────────────────────────────────
 
 PREDICTION_MODELS = {
-    "Ensemble (Best)":   ensemble_forecast,
-    "XGBoost":           xgboost_forecast,
-    "LightGBM":          lightgbm_forecast,
-    "Monte Carlo (GBM)": monte_carlo_forecast,
-    "ARIMA":             arima_forecast,
+    "TS Ensemble (Best)":  ts_ensemble_forecast,
+    "Prophet":             prophet_forecast,
+    "Holt-Winters (ETS)":  holtwinters_forecast,
+    "SARIMA":              sarima_forecast,
+    "Theta":               theta_forecast,
+    "XGBoost (TS)":        xgboost_ts_forecast,
+    "LightGBM (TS)":       lightgbm_ts_forecast,
+    "Monte Carlo (GBM)":   monte_carlo_forecast,
 }
 
 
