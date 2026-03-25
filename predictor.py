@@ -9,7 +9,7 @@ Pure time-series models + ML models with TS-aware cross-validation:
   4. Theta                   — theta decomposition method (often beats ARIMA)
   5. XGBoost (TS-CV)         — gradient boosting with TimeSeriesSplit validation
   6. LightGBM (TS-CV)        — gradient boosting with TimeSeriesSplit validation
-  7. TS Ensemble (Best)      — inverse-MAPE weighted blend of all above
+  7. TS Ensemble      — inverse-MAPE weighted blend of all above
   8. Monte Carlo (GBM)       — GARCH-like simulation (range / stress test)
 
 Multi-step strategy for ML models
@@ -614,11 +614,11 @@ def _fit_lgb(Xtr, ytr, Xte, yte):
 
 
 def xgboost_ts_forecast(prices: pd.Series, horizon: int = 30, **kw) -> PredictionResult:
-    return _ml_ts_forecast("XGBoost (TS)", _fit_xgb, prices, horizon)
+    return _ml_ts_forecast("XGBoost", _fit_xgb, prices, horizon)
 
 
 def lightgbm_ts_forecast(prices: pd.Series, horizon: int = 30, **kw) -> PredictionResult:
-    return _ml_ts_forecast("LightGBM (TS)", _fit_lgb, prices, horizon)
+    return _ml_ts_forecast("LightGBM", _fit_lgb, prices, horizon)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -639,8 +639,8 @@ def ts_ensemble_forecast(
         ("Holt-Winters (ETS)", holtwinters_forecast),
         ("SARIMA",            sarima_forecast),
         ("Theta",             theta_forecast),
-        ("XGBoost (TS)",      xgboost_ts_forecast),
-        ("LightGBM (TS)",     lightgbm_ts_forecast),
+        ("XGBoost",      xgboost_ts_forecast),
+        ("LightGBM",     lightgbm_ts_forecast),
     ]
     results = {}
     for name, fn in runners:
@@ -649,7 +649,7 @@ def ts_ensemble_forecast(
             results[name] = r
 
     if not results:
-        return PredictionResult(model_name="TS Ensemble (Best)",
+        return PredictionResult(model_name="TS Ensemble",
                                 forecast=pd.Series(),
                                 error="All sub-models failed.")
 
@@ -698,7 +698,7 @@ def ts_ensemble_forecast(
     ]))
 
     return PredictionResult(
-        model_name  = "TS Ensemble (Best)",
+        model_name  = "TS Ensemble",
         forecast    = pd.Series(blended,   index=future_idx, name="TS_Ensemble"),
         upper_bound = pd.Series(blended_u, index=future_idx),
         lower_bound = pd.Series(blended_l, index=future_idx),
@@ -810,13 +810,13 @@ def compute_technical_indicators(ohlcv: pd.DataFrame) -> pd.DataFrame:
 # ─────────────────────────────────────────────────────────────────────────────
 
 PREDICTION_MODELS = {
-    "TS Ensemble (Best)":  ts_ensemble_forecast,
+    "TS Ensemble":  ts_ensemble_forecast,
     "Prophet":             prophet_forecast,
     "Holt-Winters (ETS)":  holtwinters_forecast,
     "SARIMA":              sarima_forecast,
     "Theta":               theta_forecast,
-    "XGBoost (TS)":        xgboost_ts_forecast,
-    "LightGBM (TS)":       lightgbm_ts_forecast,
+    "XGBoost":        xgboost_ts_forecast,
+    "LightGBM":       lightgbm_ts_forecast,
     "Monte Carlo (GBM)":   monte_carlo_forecast,
 }
 

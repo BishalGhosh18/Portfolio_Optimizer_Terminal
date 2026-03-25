@@ -1169,13 +1169,13 @@ if active == "Predict":
     st.markdown('<div class="gw-section-title">Price Prediction Engine</div>', unsafe_allow_html=True)
 
     model_info = {
-        "TS Ensemble (Best)":  "Inverse-MAPE weighted blend of all 6 TS models — best overall accuracy",
+        "TS Ensemble":  "Inverse-MAPE weighted blend of all 6 TS models — best overall accuracy",
         "Prophet":             "Facebook Prophet: trend + weekly/yearly seasonality decomposition",
         "Holt-Winters (ETS)":  "Exponential smoothing with damped trend — robust for medium horizons",
         "SARIMA":              "Seasonal ARIMA with auto-order selection; weekly seasonality (s=5)",
         "Theta":               "Theta decomposition method — often outperforms ARIMA on financial data",
-        "XGBoost (TS)":        "Gradient boosting on 80+ TS features with TimeSeriesSplit cross-validation",
-        "LightGBM (TS)":       "Fast gradient boosting with TimeSeriesSplit CV; strong on large feature sets",
+        "XGBoost":        "Gradient boosting on 80+ TS features with TimeSeriesSplit cross-validation",
+        "LightGBM":       "Fast gradient boosting with TimeSeriesSplit CV; strong on large feature sets",
         "Monte Carlo (GBM)":   "5 000 GBM paths with GARCH-like volatility — range estimation & stress testing",
     }
     _horizon_label = (
@@ -1398,13 +1398,13 @@ if active == "Predict":
 
         # ── Overlay forecast chart ────────────────────────────────────────────
         MODEL_COLORS = {
-            "TS Ensemble (Best)":  "#5367FF",
+            "TS Ensemble":  "#5367FF",
             "Prophet":             "#00D09C",
             "Holt-Winters (ETS)":  "#F59E0B",
             "SARIMA":              "#8B5CF6",
             "Theta":               "#06B6D4",
-            "XGBoost (TS)":        "#10B981",
-            "LightGBM (TS)":       "#F97316",
+            "XGBoost":        "#10B981",
+            "LightGBM":       "#F97316",
             "Monte Carlo (GBM)":   "#EF4444",
         }
         fig_cmp = go.Figure()
