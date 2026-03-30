@@ -617,6 +617,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+
 # ── Active tab tracking (controls autorefresh scope) ─────────────────────────
 if "active_tab" not in st.session_state:
     st.session_state.active_tab = "Live Feed"
