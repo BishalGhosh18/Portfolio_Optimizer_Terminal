@@ -33,6 +33,7 @@ from risk_engine import (
 )
 from optimizer import run_strategy, all_strategies_summary, STRATEGIES
 from predictor import PREDICTION_MODELS, run_prediction, compute_technical_indicators
+from terminal_tab import render_terminal_tab
 
 # ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -744,7 +745,7 @@ st.markdown(
 )
 
 # ── Custom tab bar ────────────────────────────────────────────────────────────
-TAB_NAMES = ["📊 Live Feed", "📉 Charts", "⚠️ Risk", "⚙️ Optimizer", "🔮 Predict"]
+TAB_NAMES = ["📊 Live Feed", "🖥️ Terminal", "📉 Charts", "⚠️ Risk", "⚙️ Optimizer", "🔮 Predict"]
 
 # Inject CSS to style active/inactive tab buttons
 st.markdown("""
@@ -1574,6 +1575,22 @@ if active == "Predict":
             Click <b>⚖️ Compare All Models</b> in the sidebar to run all 5 models side-by-side.
         </div>
         """, unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — TERMINAL
+# ═══════════════════════════════════════════════════════════════════════════════
+if active == "Terminal":
+    # Hide sidebar and expand main content to full width on Terminal tab
+    st.markdown("""
+    <style>
+    [data-testid="stSidebar"]                { display: none !important; }
+    [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+    [data-testid="collapsedControl"]          { display: none !important; }
+    .block-container { max-width: 100% !important; padding-left: 1rem !important;
+                       padding-right: 1rem !important; }
+    </style>
+    """, unsafe_allow_html=True)
+    render_terminal_tab(universe, exchange)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown(f"""
