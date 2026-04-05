@@ -407,6 +407,94 @@ def compute_strategy_signals(
 # 5. Sector heatmap
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Gainers & Losers
+# ─────────────────────────────────────────────────────────────────────────────
+
+_GAINER_LOSER_STOCKS: dict[str, str] = {
+    # Banking
+    "HDFC Bank":        "HDFCBANK.NS",
+    "ICICI Bank":       "ICICIBANK.NS",
+    "SBI":              "SBIN.NS",
+    "Axis Bank":        "AXISBANK.NS",
+    "Kotak Bank":       "KOTAKBANK.NS",
+    "IndusInd Bank":    "INDUSINDBK.NS",
+    "Bajaj Finance":    "BAJFINANCE.NS",
+    "Yes Bank":         "YESBANK.NS",
+    "PFC":              "PFC.NS",
+    "REC":              "RECLTD.NS",
+    # IT
+    "TCS":              "TCS.NS",
+    "Infosys":          "INFY.NS",
+    "Wipro":            "WIPRO.NS",
+    "HCL Tech":         "HCLTECH.NS",
+    "Tech Mahindra":    "TECHM.NS",
+    "LTIMindtree":      "LTIM.NS",
+    # Energy / Infra
+    "Reliance":         "RELIANCE.NS",
+    "ONGC":             "ONGC.NS",
+    "NTPC":             "NTPC.NS",
+    "Power Grid":       "POWERGRID.NS",
+    "Adani Enterprises":"ADANIENT.NS",
+    "Adani Ports":      "ADANIPORTS.NS",
+    "Adani Green":      "ADANIGREEN.NS",
+    "Coal India":       "COALINDIA.NS",
+    "L&T":              "LT.NS",
+    # Telecom / FMCG
+    "Bharti Airtel":    "BHARTIARTL.NS",
+    "HUL":              "HINDUNILVR.NS",
+    "ITC":              "ITC.NS",
+    "Nestle":           "NESTLEIND.NS",
+    "Britannia":        "BRITANNIA.NS",
+    # Auto
+    "Maruti":           "MARUTI.NS",
+    "Tata Motors":      "TMCV.NS",
+    "M&M":              "M&M.NS",
+    "Hero MotoCorp":    "HEROMOTOCO.NS",
+    "Bajaj Auto":       "BAJAJ-AUTO.NS",
+    # Pharma
+    "Sun Pharma":       "SUNPHARMA.NS",
+    "Dr Reddy's":       "DRREDDY.NS",
+    "Cipla":            "CIPLA.NS",
+    "Divi's Labs":      "DIVISLAB.NS",
+    # Metals / Commodities
+    "Tata Steel":       "TATASTEEL.NS",
+    "JSW Steel":        "JSWSTEEL.NS",
+    "Hindalco":         "HINDALCO.NS",
+    "Vedanta":          "VEDL.NS",
+    # Others
+    "Titan":            "TITAN.NS",
+    "Asian Paints":     "ASIANPAINT.NS",
+    "Tata Power":       "TATAPOWER.NS",
+    "DLF":              "DLF.NS",
+}
+
+
+@st.cache_data(ttl=60)
+def fetch_gainers_losers(top_n: int = 10) -> tuple[list[dict], list[dict]]:
+    """
+    Fetch live quotes for ~50 NSE stocks, return top_n gainers and top_n losers
+    sorted by day % change.
+    """
+    rows: list[dict] = []
+    for name, ticker in _GAINER_LOSER_STOCKS.items():
+        q = fetch_live_quote(ticker)
+        if not q:
+            continue
+        pct = q.get("change_pct", 0.0) or 0.0
+        rows.append({
+            "name":       name,
+            "ticker":     ticker.replace(".NS", "").replace(".BO", ""),
+            "price":      q.get("price", 0.0) or 0.0,
+            "change_pct": round(pct, 2),
+        })
+
+    rows.sort(key=lambda x: x["change_pct"], reverse=True)
+    gainers = rows[:top_n]
+    losers  = list(reversed(rows[-top_n:]))
+    return gainers, losers
+
+
 @st.cache_data(ttl=60)
 def fetch_heatmap_data() -> list[dict]:
     """Return live % change for the top-20 NSE heatmap stocks."""

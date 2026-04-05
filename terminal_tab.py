@@ -30,6 +30,7 @@ from data_fetcher import fetch_ohlcv, fetch_live_quote
 from terminal_utils import (
     HEATMAP_STOCKS,
     compute_strategy_signals,
+    fetch_gainers_losers,
     fetch_heatmap_data,
     fetch_index_quotes,
     fetch_news,
@@ -630,6 +631,66 @@ def _sector_heatmap() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Panel 8 — Gainers & Losers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _gainers_losers() -> None:
+    _panel_title("📈 Gainers & Losers of the Day", "Top 10 / Bottom 10")
+
+    gainers, losers = fetch_gainers_losers(top_n=10)
+
+    def _row_html(name: str, ticker: str, price: float, pct: float, is_gain: bool) -> str:
+        color  = _GREEN if is_gain else _RED
+        sign   = "+" if pct >= 0 else ""
+        arrow  = "▲" if pct >= 0 else "▼"
+        bar_w  = min(abs(pct) / 5 * 100, 100)   # scale: 5% = full bar
+        bar_bg = "rgba(0,208,156,0.12)" if is_gain else "rgba(255,83,112,0.12)"
+        return (
+            f'<div style="position:relative;display:flex;align-items:center;'
+            f'justify-content:space-between;padding:5px 8px;margin-bottom:3px;'
+            f'border-radius:6px;background:white;overflow:hidden;">'
+            f'<div style="position:absolute;left:0;top:0;height:100%;'
+            f'width:{bar_w:.1f}%;background:{bar_bg};z-index:0;"></div>'
+            f'<div style="position:relative;z-index:1;display:flex;flex-direction:column;">'
+            f'<span style="font-size:0.72rem;font-weight:600;color:{_NAVY};">{name}</span>'
+            f'<span style="font-size:0.60rem;color:#9CA3AF;">{ticker}</span>'
+            f'</div>'
+            f'<div style="position:relative;z-index:1;text-align:right;">'
+            f'<div style="font-size:0.72rem;font-weight:600;color:{_NAVY};">₹{price:,.1f}</div>'
+            f'<div style="font-size:0.68rem;font-weight:700;color:{color};">'
+            f'{arrow} {sign}{pct:.2f}%</div>'
+            f'</div>'
+            f'</div>'
+        )
+
+    col_g, col_l = st.columns(2)
+
+    with col_g:
+        st.markdown(
+            f'<div style="font-size:0.70rem;font-weight:700;color:{_GREEN};'
+            f'margin-bottom:6px;letter-spacing:0.04em;">▲ TOP GAINERS</div>',
+            unsafe_allow_html=True,
+        )
+        if gainers:
+            html = "".join(_row_html(r["name"], r["ticker"], r["price"], r["change_pct"], True) for r in gainers)
+            st.markdown(html, unsafe_allow_html=True)
+        else:
+            st.caption("No data available")
+
+    with col_l:
+        st.markdown(
+            f'<div style="font-size:0.70rem;font-weight:700;color:{_RED};'
+            f'margin-bottom:6px;letter-spacing:0.04em;">▼ TOP LOSERS</div>',
+            unsafe_allow_html=True,
+        )
+        if losers:
+            html = "".join(_row_html(r["name"], r["ticker"], r["price"], r["change_pct"], False) for r in losers)
+            st.markdown(html, unsafe_allow_html=True)
+        else:
+            st.caption("No data available")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -678,6 +739,15 @@ def render_terminal_tab(
         _strategy_signals(universe)
     with bot_r:
         _sector_heatmap()
+
+    st.markdown(
+        '<div style="margin:14px 0;border-top:1px solid #E5E7EB;"></div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Gainers & Losers row ──────────────────────────────────────────────────
+    with st.container():
+        _gainers_losers()
 
     st.markdown(
         '<div style="font-size:0.68rem;color:#9CA3AF;text-align:center;margin-top:10px;">'
