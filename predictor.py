@@ -52,8 +52,35 @@ class PredictionResult:
 # Shared helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+# NSE/BSE market holidays 2024–2026 (exchange-specific closures beyond weekends)
+_NSE_HOLIDAYS = pd.to_datetime([
+    # 2024
+    "2024-01-22","2024-01-26","2024-03-25","2024-04-14","2024-04-17",
+    "2024-05-23","2024-06-17","2024-07-17","2024-08-15","2024-10-02",
+    "2024-10-14","2024-11-01","2024-11-15","2024-11-20","2024-12-25",
+    # 2025
+    "2025-01-26","2025-02-26","2025-03-14","2025-03-31","2025-04-10",
+    "2025-04-14","2025-04-18","2025-05-01","2025-06-07","2025-08-15",
+    "2025-10-02","2025-10-21","2025-11-05","2025-12-25",
+    # 2026
+    "2026-01-26","2026-03-02","2026-03-25","2026-04-03","2026-04-14",
+    "2026-05-01","2026-08-15","2026-10-02","2026-12-25",
+])
+
+
 def _future_business_dates(last_date: pd.Timestamp, n: int) -> pd.DatetimeIndex:
-    return pd.bdate_range(start=last_date + pd.Timedelta(days=1), periods=n)
+    """Return n future NSE trading dates after last_date, skipping weekends and holidays."""
+    try:
+        from pandas.tseries.offsets import CustomBusinessDay
+        nse_day = CustomBusinessDay(holidays=_NSE_HOLIDAYS)
+        return pd.bdate_range(
+            start=last_date + pd.Timedelta(days=1),
+            periods=n,
+            freq=nse_day,
+        )
+    except Exception:
+        # Fallback to plain business days if CustomBusinessDay fails
+        return pd.bdate_range(start=last_date + pd.Timedelta(days=1), periods=n)
 
 
 def _rmse(a: np.ndarray, p: np.ndarray) -> float:
@@ -191,7 +218,7 @@ def _hybrid_ml_forecast(
     feat_cols: list,
     prices: pd.Series,
     horizon: int,
-    wfwd_steps: int = 5,
+    wfwd_steps: int = 30,
 ) -> tuple[np.ndarray, float]:
     last_price = float(prices.iloc[-1])
     hist_lr    = np.log(prices / prices.shift(1)).dropna().values
@@ -589,10 +616,11 @@ def _ml_ts_forecast(
 def _fit_xgb(Xtr, ytr, Xte, yte):
     from xgboost import XGBRegressor
     m = XGBRegressor(
-        n_estimators=600, learning_rate=0.025, max_depth=5,
-        subsample=0.8, colsample_bytree=0.7,
-        reg_alpha=0.1, reg_lambda=1.0, min_child_weight=3,
-        random_state=42, n_jobs=-1, verbosity=0,
+        n_estimators=1000, learning_rate=0.015, max_depth=4,
+        subsample=0.75, colsample_bytree=0.65,
+        reg_alpha=0.5, reg_lambda=2.0, min_child_weight=5,
+        gamma=0.1, random_state=42, n_jobs=-1, verbosity=0,
+        early_stopping_rounds=50,
     )
     m.fit(Xtr, ytr, eval_set=[(Xte, yte)], verbose=False)
     return m
@@ -601,14 +629,14 @@ def _fit_xgb(Xtr, ytr, Xte, yte):
 def _fit_lgb(Xtr, ytr, Xte, yte):
     import lightgbm as lgb
     m = lgb.LGBMRegressor(
-        n_estimators=600, learning_rate=0.025, max_depth=6,
-        num_leaves=40, subsample=0.8, colsample_bytree=0.7,
-        reg_alpha=0.1, reg_lambda=1.0, min_child_samples=10,
-        random_state=42, n_jobs=-1, verbose=-1,
+        n_estimators=1000, learning_rate=0.015, max_depth=5,
+        num_leaves=31, subsample=0.75, colsample_bytree=0.65,
+        reg_alpha=0.5, reg_lambda=2.0, min_child_samples=15,
+        min_split_gain=0.01, random_state=42, n_jobs=-1, verbose=-1,
     )
     m.fit(Xtr, ytr,
           eval_set=[(Xte, yte)],
-          callbacks=[lgb.early_stopping(60, verbose=False),
+          callbacks=[lgb.early_stopping(50, verbose=False),
                      lgb.log_evaluation(-1)])
     return m
 
@@ -622,7 +650,37 @@ def lightgbm_ts_forecast(prices: pd.Series, horizon: int = 30, **kw) -> Predicti
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. TS Ensemble — inverse-MAPE weighted blend of all models
+# Rolling-window evaluation — measures each model on the RECENT 30 trading days
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _rolling_eval(
+    fn,
+    prices: pd.Series,
+    eval_window: int = 30,
+) -> float:
+    """
+    Train model on prices[:-eval_window], forecast eval_window steps,
+    compare to actual prices[-eval_window:].
+    Returns MAPE on that recent out-of-sample window.
+    Falls back to 999 if evaluation fails.
+    """
+    try:
+        if len(prices) < eval_window + 60:
+            return 999.0
+        train  = prices.iloc[:-eval_window]
+        actual = prices.iloc[-eval_window:].values
+        r      = fn(train, horizon=eval_window)
+        if r.error or r.forecast is None or r.forecast.empty:
+            return 999.0
+        predicted = r.forecast.values[:len(actual)]
+        n = min(len(actual), len(predicted))
+        return _mape(actual[:n], predicted[:n])
+    except Exception:
+        return 999.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. TS Ensemble — adaptive weights from recent rolling evaluation
 # ─────────────────────────────────────────────────────────────────────────────
 
 def ts_ensemble_forecast(
@@ -631,18 +689,29 @@ def ts_ensemble_forecast(
 ) -> PredictionResult:
     """
     Runs all 6 time-series models independently.
-    Weights each model's price forecast by inverse test-MAPE.
-    Lower MAPE → higher weight.
+
+    Weighting strategy (two-tier):
+      1. Recent MAPE  — each model is tested on the last 30 trading days
+                        (train on history, predict last 30, measure error).
+                        This captures current regime fitness.
+      2. Full-history MAPE — from each model's own backtest metrics.
+
+    Final weight = 0.70 × (1/recent_mape) + 0.30 × (1/hist_mape)
+
+    Confidence band = percentile spread across all model forecasts
+    (tighter when models agree, wider when they disagree).
     """
     runners = [
-        ("Prophet",           prophet_forecast),
+        ("Prophet",            prophet_forecast),
         ("Holt-Winters (ETS)", holtwinters_forecast),
-        ("SARIMA",            sarima_forecast),
-        ("Theta",             theta_forecast),
-        ("XGBoost",      xgboost_ts_forecast),
-        ("LightGBM",     lightgbm_ts_forecast),
+        ("SARIMA",             sarima_forecast),
+        ("Theta",              theta_forecast),
+        ("XGBoost",            xgboost_ts_forecast),
+        ("LightGBM",           lightgbm_ts_forecast),
     ]
-    results = {}
+
+    # ── Run all models on full series ──
+    results: dict[str, PredictionResult] = {}
     for name, fn in runners:
         r = fn(prices, horizon=horizon)
         if not r.error and r.forecast is not None and not r.forecast.empty:
@@ -653,49 +722,75 @@ def ts_ensemble_forecast(
                                 forecast=pd.Series(),
                                 error="All sub-models failed.")
 
-    # ── Compute inverse-MAPE weights ──
-    mapes = {}
+    future_idx = _future_business_dates(prices.index[-1], horizon)
+
+    # ── Collect all forecasts as matrix for percentile CI ──
+    fc_matrix = []
+    for r in results.values():
+        fc = r.forecast.reindex(future_idx, method="nearest").values[:horizon]
+        if len(fc) == horizon:
+            fc_matrix.append(fc)
+    fc_matrix = np.array(fc_matrix)   # shape (n_models, horizon)
+
+    # ── Compute historical MAPE per model ──
+    hist_mapes: dict[str, float] = {}
     for name, r in results.items():
         m = r.metrics or {}
         try:
-            mapes[name] = float(m.get("MAPE % (price)", m.get("CV MAPE % (avg)", 10.0)))
+            hist_mapes[name] = float(
+                m.get("MAPE % (price)", m.get("CV MAPE % (avg)", 10.0)))
         except Exception:
-            mapes[name] = 10.0
+            hist_mapes[name] = 10.0
 
-    inv_mape = {n: 1.0 / (v + 1e-8) for n, v in mapes.items()}
-    total    = sum(inv_mape.values())
-    weights  = {n: v / total for n, v in inv_mape.items()}
+    # ── Compute recent 30-day rolling MAPE per model ──
+    recent_mapes: dict[str, float] = {}
+    fns = dict(runners)
+    for name in results:
+        recent_mapes[name] = _rolling_eval(fns[name], prices, eval_window=30)
+
+    # ── Combined adaptive weight: 70% recent + 30% historical ──
+    combined: dict[str, float] = {}
+    for name in results:
+        inv_r = 1.0 / (recent_mapes[name] + 1e-8)
+        inv_h = 1.0 / (hist_mapes[name]   + 1e-8)
+        combined[name] = 0.70 * inv_r + 0.30 * inv_h
+
+    total   = sum(combined.values())
+    weights = {n: v / total for n, v in combined.items()}
 
     # ── Blend price forecasts ──
-    future_idx = _future_business_dates(prices.index[-1], horizon)
-    blended    = np.zeros(horizon)
-    blended_u  = np.zeros(horizon)
-    blended_l  = np.zeros(horizon)
-
+    blended = np.zeros(horizon)
     for name, r in results.items():
-        w    = weights[name]
-        fc   = r.forecast.reindex(future_idx, method="nearest").values[:horizon]
-        blended += w * fc
-        if r.upper_bound is not None and not r.upper_bound.empty:
-            blended_u += w * r.upper_bound.reindex(future_idx, method="nearest").values[:horizon]
-        else:
-            blended_u += w * fc * 1.05
-        if r.lower_bound is not None and not r.lower_bound.empty:
-            blended_l += w * r.lower_bound.reindex(future_idx, method="nearest").values[:horizon]
-        else:
-            blended_l += w * fc * 0.95
+        fc = r.forecast.reindex(future_idx, method="nearest").values[:horizon]
+        blended += weights[name] * fc
 
-    # Best model by weight
-    best_model = max(weights, key=weights.get)
-    w_str      = " | ".join(f"{n}:{w:.2f}" for n, w in
-                            sorted(weights.items(), key=lambda x: -x[1]))
+    # ── CI from model spread (5th–95th percentile across all model forecasts) ──
+    if fc_matrix.shape[0] >= 2:
+        blended_u = np.percentile(fc_matrix, 95, axis=0)
+        blended_l = np.percentile(fc_matrix, 5,  axis=0)
+        # Widen slightly to ensure CI contains blended line
+        blended_u = np.maximum(blended_u, blended * 1.01)
+        blended_l = np.minimum(blended_l, blended * 0.99)
+    else:
+        blended_u = blended * 1.05
+        blended_l = blended * 0.95
 
-    # Overall blended MAPE (weighted average)
-    avg_mape = sum(mapes[n] * weights[n] for n in results)
-    avg_dacc = float(np.mean([
-        float(r.metrics.get("Directional Acc %", r.metrics.get("CV Dir Acc % (avg)", 0)))
+    # ── Summary stats ──
+    best_model  = max(weights, key=weights.get)
+    w_str       = " | ".join(
+        f"{n}:{w:.2f}" for n, w in sorted(weights.items(), key=lambda x: -x[1])
+    )
+    avg_mape    = sum(hist_mapes[n] * weights[n] for n in results)
+    avg_dacc    = float(np.mean([
+        float(r.metrics.get("Directional Acc %",
+              r.metrics.get("CV Dir Acc % (avg)", 0)))
         for r in results.values()
     ]))
+    recent_str  = " | ".join(
+        f"{n}:{v:.1f}%" for n, v in
+        sorted(recent_mapes.items(), key=lambda x: x[1])
+        if n in results
+    )
 
     return PredictionResult(
         model_name  = "TS Ensemble",
@@ -703,11 +798,12 @@ def ts_ensemble_forecast(
         upper_bound = pd.Series(blended_u, index=future_idx),
         lower_bound = pd.Series(blended_l, index=future_idx),
         metrics     = {
-            "Directional Acc %": round(avg_dacc, 1),
-            "MAPE % (price)":    round(avg_mape, 2),
-            "Best sub-model":    best_model,
-            "Model weights":     w_str,
-            "Models blended":    len(results),
+            "Directional Acc %":    round(avg_dacc, 1),
+            "MAPE % (price)":       round(avg_mape, 2),
+            "Best sub-model":       best_model,
+            "Model weights":        w_str,
+            "Recent 30d MAPE":      recent_str,
+            "Models blended":       len(results),
         },
     )
 

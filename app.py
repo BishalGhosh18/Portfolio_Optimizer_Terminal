@@ -32,7 +32,8 @@ from risk_engine import (
     portfolio_returns, TRADING_DAYS,
 )
 from optimizer import run_strategy, all_strategies_summary, STRATEGIES
-from predictor import PREDICTION_MODELS, run_prediction, compute_technical_indicators
+from predictor import PREDICTION_MODELS, compute_technical_indicators
+from insights_tab import render_insights_tab
 from terminal_tab import render_terminal_tab
 
 # ── Page config ─────────────────────────────────────────────────────────────
@@ -559,7 +560,6 @@ with st.sidebar:
     st.markdown('<div style="font-size:0.72rem;color:#9CA3AF;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Price Prediction</div>', unsafe_allow_html=True)
     pred_company = st.selectbox("Stock to Predict", options=all_names,
                                 index=all_names.index(selected_names[0]) if selected_names else 0)
-    pred_model   = st.selectbox("Model", list(PREDICTION_MODELS.keys()))
 
     # ── Date-wise forecast controls ──────────────────────────────────────────
     horizon_mode = st.radio("Forecast by", ["Days", "Target Date"], horizontal=True)
@@ -609,8 +609,7 @@ with st.sidebar:
 
     st.markdown('<hr style="border-color:#2D3748;margin:12px 0;">', unsafe_allow_html=True)
     run_btn      = st.button("▶  Run Analysis",       use_container_width=True)
-    pred_btn     = st.button("🔮  Run Prediction",    use_container_width=True)
-    compare_btn  = st.button("⚖️  Compare All Models", use_container_width=True)
+    pred_btn     = st.button("🔮  Run Prediction", use_container_width=True)
 
     st.markdown(
         f'<div style="font-size:0.68rem;color:#4B5563;margin-top:12px;text-align:center;">'
@@ -745,7 +744,7 @@ st.markdown(
 )
 
 # ── Custom tab bar ────────────────────────────────────────────────────────────
-TAB_NAMES = ["📊 Live Feed", "🖥️ Terminal", "📉 Charts", "⚠️ Risk", "⚙️ Optimizer", "🔮 Predict"]
+TAB_NAMES = ["📊 Live Feed", "🖥️ Terminal", "📉 Charts", "⚠️ Risk", "⚙️ Optimizer", "🔮 Predict", "💡 Insights"]
 
 # Inject CSS to style active/inactive tab buttons
 st.markdown("""
@@ -1170,16 +1169,6 @@ if active == "Optimizer":
 if active == "Predict":
     st.markdown('<div class="gw-section-title">Price Prediction Engine</div>', unsafe_allow_html=True)
 
-    model_info = {
-        "TS Ensemble":  "Inverse-MAPE weighted blend of all 6 TS models — best overall accuracy",
-        "Prophet":             "Facebook Prophet: trend + weekly/yearly seasonality decomposition",
-        "Holt-Winters (ETS)":  "Exponential smoothing with damped trend — robust for medium horizons",
-        "SARIMA":              "Seasonal ARIMA with auto-order selection; weekly seasonality (s=5)",
-        "Theta":               "Theta decomposition method — often outperforms ARIMA on financial data",
-        "XGBoost":        "Gradient boosting on 80+ TS features with TimeSeriesSplit cross-validation",
-        "LightGBM":       "Fast gradient boosting with TimeSeriesSplit CV; strong on large feature sets",
-        "Monte Carlo (GBM)":   "5 000 GBM paths with GARCH-like volatility — range estimation & stress testing",
-    }
     _horizon_label = (
         f"Target: {pred_end_date.strftime('%d %b %Y')} ({pred_horizon} trading days)"
         if pred_end_date else f"{pred_horizon} trading days"
@@ -1188,25 +1177,19 @@ if active == "Predict":
         f"{train_from.strftime('%d %b %Y')} → {train_to.strftime('%d %b %Y')}"
         if filter_enabled else "5 years (full)"
     )
-    st.markdown(f"""
-    <div class="gw-info-box">
-        <b>Model:</b> {pred_model} &nbsp;·&nbsp;
-        <b>Stock:</b> {pred_company} &nbsp;·&nbsp;
-        <b>Horizon:</b> {_horizon_label}<br>
-        <b>Training data:</b> {_train_label}<br>
-        <span style="color:#9CA3AF;font-size:0.75rem;">{model_info.get(pred_model,'')}</span>
-    </div>
-    """, unsafe_allow_html=True)
 
-    if pred_btn or (st.session_state.pred_result and
-                   st.session_state.pred_result.get("company") == pred_company and
-                   st.session_state.pred_result.get("model") == pred_model and
-                   st.session_state.pred_result.get("horizon") == pred_horizon):
+    # Cache key to avoid re-running on every rerun
+    _pred_cache_key = f"{pred_company}|{pred_horizon}|{filter_enabled}|{train_from}|{train_to}"
+    _cached = st.session_state.get("pred_result")
+    _cache_valid = (
+        _cached and
+        _cached.get("cache_key") == _pred_cache_key
+    )
 
-        if pred_btn:
-            with st.spinner(f"Running {pred_model} on {pred_company}..."):
+    if pred_btn or not _cache_valid:
+        if pred_btn or not _cache_valid:
+            with st.spinner(f"Running all models on {pred_company} — picking the best…"):
                 try:
-                    # Always fetch 5y for prediction regardless of portfolio lookback
                     pred_ticker  = universe.get(pred_company, pred_company)
                     _raw = fetch_price_data([pred_ticker], period="5y")
                     if _raw.empty:
@@ -1214,7 +1197,6 @@ if active == "Predict":
                     price_series = _raw.iloc[:, 0].dropna()
                     price_series.name = pred_company
 
-                    # ── Apply training date filter (only when enabled) ────────
                     if filter_enabled:
                         _tf = pd.Timestamp(train_from)
                         _tt = pd.Timestamp(train_to)
@@ -1223,337 +1205,239 @@ if active == "Predict":
                         ]
                         if len(price_series) < 60:
                             raise ValueError(
-                                f"Only {len(price_series)} data points between "
-                                f"{train_from.strftime('%d %b %Y')} and "
-                                f"{train_to.strftime('%d %b %Y')}. "
-                                f"Need at least 60 — widen the range."
+                                f"Only {len(price_series)} rows in "
+                                f"{train_from.strftime('%d %b %Y')} – {train_to.strftime('%d %b %Y')}. "
+                                f"Need at least 60."
                             )
-                    # ─────────────────────────────────────────────────────────
 
-                    result = run_prediction(pred_model, price_series, horizon=pred_horizon)
+                    # ── Run all models in background ──────────────────────────
+                    MODEL_COLORS = {
+                        "TS Ensemble":        "#5367FF",
+                        "Prophet":            "#00D09C",
+                        "Holt-Winters (ETS)": "#F59E0B",
+                        "SARIMA":             "#8B5CF6",
+                        "Theta":              "#06B6D4",
+                        "XGBoost":            "#10B981",
+                        "LightGBM":           "#F97316",
+                        "Monte Carlo (GBM)":  "#EF4444",
+                    }
+                    all_results = {}
+                    for mname, mfn in PREDICTION_MODELS.items():
+                        try:
+                            all_results[mname] = mfn(price_series, horizon=pred_horizon)
+                        except Exception:
+                            pass
+
+                    # ── Pick best model by Dir Accuracy then MAPE ─────────────
+                    def _score(r):
+                        if r.error or r.forecast is None or r.forecast.empty:
+                            return (-9999, 9999)
+                        m = r.metrics or {}
+                        da = float(m.get("Directional Acc %", m.get("CV Dir Acc % (avg)", 0)) or 0)
+                        mp = float(m.get("MAPE % (price)",    m.get("CV MAPE % (avg)", 9999)) or 9999)
+                        return (da, -mp)
+
+                    valid = {n: r for n, r in all_results.items()
+                             if not r.error and r.forecast is not None and not r.forecast.empty}
+                    if not valid:
+                        raise ValueError("All models failed.")
+
+                    best_name   = max(valid, key=lambda n: _score(valid[n]))
+                    best_result = valid[best_name]
+
                     st.session_state.pred_result = {
-                        "company": pred_company, "model": pred_model,
-                        "result": result, "series": price_series,
-                        "horizon": pred_horizon, "end_date": pred_end_date,
+                        "cache_key":   _pred_cache_key,
+                        "company":     pred_company,
+                        "horizon":     pred_horizon,
+                        "end_date":    pred_end_date,
+                        "series":      price_series,
+                        "best_name":   best_name,
+                        "best_result": best_result,
+                        "all_results": all_results,
+                        "colors":      MODEL_COLORS,
                     }
                 except Exception as e:
                     st.error(f"Prediction error: {e}")
                     st.session_state.pred_result = None
 
-        pr = st.session_state.pred_result
-        if pr and pr.get("result") is not None and pr.get("series") is not None:
-            result       = pr["result"]
-            price_series = pr["series"]
+    pr = st.session_state.get("pred_result")
+    if pr and pr.get("best_result") is not None:
+        best_name   = pr["best_name"]
+        best_result = pr["best_result"]
+        price_series = pr["series"]
+        all_results  = pr["all_results"]
+        MODEL_COLORS = pr["colors"]
 
-            if result.error:
-                st.error(f"Model error: {result.error}")
-            else:
-                forecast = result.forecast
-                upper    = result.upper_bound
-                lower    = result.lower_bound
+        forecast = best_result.forecast
+        upper    = best_result.upper_bound
+        lower    = best_result.lower_bound
+        metrics  = best_result.metrics or {}
 
-                fig_pred = go.Figure()
-                hist     = price_series.tail(180)
-                hist_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in hist.index]
+        _data_date     = price_series.index[-1]
+        _data_date_str = _data_date.strftime("%d %b %Y") if hasattr(_data_date, "strftime") else str(_data_date)
+        _fore_start    = forecast.index[0] if forecast is not None and not forecast.empty else None
+        _fore_start_str = _fore_start.strftime("%d %b %Y") if _fore_start and hasattr(_fore_start, "strftime") else ""
 
-                fig_pred.add_trace(go.Scatter(
-                    x=hist_idx, y=hist.values, mode="lines", name="Historical",
-                    line=dict(color=GW_NAVY, width=2),
-                ))
-                if forecast is not None and not forecast.empty:
-                    fore_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in forecast.index]
-                    if upper is not None and lower is not None:
-                        up_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in upper.index]
-                        lo_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in lower.index]
-                        fig_pred.add_trace(go.Scatter(
-                            x=up_idx, y=upper.values, mode="lines",
-                            name="Upper Band", line=dict(color="rgba(83,103,255,0.3)", width=1),
-                        ))
-                        fig_pred.add_trace(go.Scatter(
-                            x=lo_idx, y=lower.values, mode="lines",
-                            name="Lower Band", line=dict(color="rgba(83,103,255,0.3)", width=1),
-                            fill="tonexty", fillcolor="rgba(83,103,255,0.08)",
-                        ))
-                    fig_pred.add_trace(go.Scatter(
-                        x=fore_idx, y=forecast.values, mode="lines",
-                        name=f"{pred_model} Forecast",
-                        line=dict(color=GW_PURPLE, width=2.5, dash="dash"),
-                    ))
-                _vline(fig_pred, price_series.index[-1])
-                groww_fig(fig_pred, 460, f"{pred_company} — {pred_model} Forecast ({pred_horizon}d)")
-                st.plotly_chart(fig_pred, use_container_width=True)
-
-                # ── Key metrics ──
-                metrics    = result.metrics or {}
-                last_price = float(price_series.iloc[-1])
-                last_fore  = float(forecast.iloc[-1]) if forecast is not None and not forecast.empty else last_price
-                pred_chg   = (last_fore - last_price) / last_price * 100
-
-                m_cols = st.columns(4)
-                with m_cols[0]:
-                    st.markdown(f"""
-                    <div class="gw-stat-card">
-                        <div class="gw-stat-label">Current Price</div>
-                        <div class="gw-stat-value">₹{last_price:,.2f}</div>
-                    </div>""", unsafe_allow_html=True)
-                with m_cols[1]:
-                    color = GW_GREEN if pred_chg > 0 else GW_RED
-                    _stored_end = pr.get("end_date")
-                    _in_label   = (
-                        _stored_end.strftime("%d %b %Y")
-                        if _stored_end else f"In {pred_horizon} Days"
-                    )
-                    st.markdown(f"""
-                    <div class="gw-stat-card">
-                        <div class="gw-stat-label">{_in_label}</div>
-                        <div class="gw-stat-value">₹{last_fore:,.2f}</div>
-                        <div class="gw-stat-sub" style="color:{color};">{pred_chg:+.2f}%</div>
-                    </div>""", unsafe_allow_html=True)
-                if "rmse" in metrics:
-                    with m_cols[2]:
-                        st.markdown(f"""
-                        <div class="gw-stat-card">
-                            <div class="gw-stat-label">RMSE</div>
-                            <div class="gw-stat-value">₹{metrics['rmse']:.2f}</div>
-                        </div>""", unsafe_allow_html=True)
-                if "mape" in metrics:
-                    with m_cols[3]:
-                        st.markdown(f"""
-                        <div class="gw-stat-card">
-                            <div class="gw-stat-label">MAPE</div>
-                            <div class="gw-stat-value">{metrics['mape']:.2f}%</div>
-                        </div>""", unsafe_allow_html=True)
-
-                # ── Scenario table ──
-                if forecast is not None and not forecast.empty:
-                    st.markdown('<div class="gw-section-title" style="margin-top:20px;">Scenario Analysis</div>', unsafe_allow_html=True)
-                    cur  = float(price_series.iloc[-1])
-                    f1w  = float(forecast.iloc[min(4,  len(forecast)-1)])
-                    f1m  = float(forecast.iloc[min(19, len(forecast)-1)])
-                    fend = float(forecast.iloc[-1])
-                    _stored_end2 = pr.get("end_date")
-                    _end_label   = (
-                        _stored_end2.strftime("%d %b %Y")
-                        if _stored_end2 else f"{pr.get('horizon', pred_horizon)} Days"
-                    )
-                    sc_df = pd.DataFrame({
-                        "Horizon":  ["1 Week", "1 Month", _end_label],
-                        "Forecast": [f"₹{f1w:,.2f}",  f"₹{f1m:,.2f}",  f"₹{fend:,.2f}"],
-                        "Change":   [f"{(f1w-cur)/cur*100:+.2f}%",  f"{(f1m-cur)/cur*100:+.2f}%",
-                                     f"{(fend-cur)/cur*100:+.2f}%"],
-                        "Signal":   [("🟢 BUY" if f1w>cur else "🔴 SELL"),
-                                     ("🟢 BUY" if f1m>cur else "🔴 SELL"),
-                                     ("🟢 BUY" if fend>cur else "🔴 SELL")],
-                    })
-                    st.dataframe(sc_df.set_index("Horizon"), use_container_width=True)
-    else:
-        st.markdown("""
-        <div class="gw-card" style="text-align:center;padding:32px;">
-            <div style="font-size:2rem;margin-bottom:8px;">🔮</div>
-            <div style="font-weight:600;color:#1B2236;">Configure and run a prediction</div>
-            <div style="color:#9CA3AF;font-size:0.82rem;margin-top:6px;">
-                Select a stock, model and horizon in the sidebar, then click <b>Run Prediction</b>
+        # ── Best model banner ─────────────────────────────────────────────────
+        _da  = metrics.get("Directional Acc %") or metrics.get("CV Dir Acc % (avg)") or 0
+        _mp  = metrics.get("MAPE % (price)")    or metrics.get("CV MAPE % (avg)")    or 0
+        st.markdown(f"""
+        <div class="gw-card" style="background:linear-gradient(135deg,#5367FF12,#8B5CF612);
+             border:1.5px solid #5367FF55;padding:14px 20px;margin-bottom:14px;">
+            <div style="font-size:0.70rem;color:#9CA3AF;letter-spacing:1px;margin-bottom:4px;">
+                🏆 BEST MODEL &nbsp;·&nbsp; {pred_company} &nbsp;·&nbsp; {_horizon_label}
+                &nbsp;·&nbsp; Training: {_train_label}
+            </div>
+            <span style="font-size:1.3rem;font-weight:700;color:{GW_PURPLE};">🥇 {best_name}</span>
+            <span style="font-size:0.82rem;color:#6B7280;margin-left:12px;">
+                Dir. Accuracy: <b style="color:{GW_GREEN};">{float(_da):.1f}%</b>
+                &nbsp;·&nbsp; Price MAPE: <b>{float(_mp):.2f}%</b>
+            </span>
+            <div style="font-size:0.70rem;color:#9CA3AF;margin-top:4px;">
+                📅 Training data up to <b>{_data_date_str}</b> &nbsp;·&nbsp;
+                Forecast from <b>{_fore_start_str}</b> &nbsp;·&nbsp;
+                Accuracy shown is <b>historical backtest</b> — not a guarantee of future performance.
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Model Comparison ──────────────────────────────────────────────────────
-    st.markdown('<hr style="margin:24px 0 16px;">', unsafe_allow_html=True)
-    st.markdown('<div class="gw-section-title">Model Comparison</div>', unsafe_allow_html=True)
+        # ── Forecast chart — best model highlighted, others dimmed ────────────
+        fig_pred = go.Figure()
+        hist     = price_series.tail(180)
+        hist_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in hist.index]
+        fig_pred.add_trace(go.Scatter(
+            x=hist_idx, y=hist.values, mode="lines", name="Historical",
+            line=dict(color=GW_NAVY, width=2),
+        ))
 
-    # Run all models when button clicked
-    if compare_btn:
-        with st.spinner(f"Running all models on {pred_company} ({pred_horizon}d)…"):
-            try:
-                pred_ticker = universe.get(pred_company, pred_company)
-                _raw = fetch_price_data([pred_ticker], period="5y")
-                if _raw.empty:
-                    raise ValueError(f"No data for {pred_company}")
-                cmp_series = _raw.iloc[:, 0].dropna()
-                cmp_series.name = pred_company
-                if filter_enabled:
-                    _tf = pd.Timestamp(train_from)
-                    _tt = pd.Timestamp(train_to)
-                    cmp_series = cmp_series[(cmp_series.index >= _tf) & (cmp_series.index <= _tt)]
-                    if len(cmp_series) < 60:
-                        raise ValueError("Date range too narrow for comparison — need 60+ rows.")
-                cmp_results = {}
-                for mname, mfn in PREDICTION_MODELS.items():
-                    try:
-                        cmp_results[mname] = {
-                            "result": mfn(cmp_series, horizon=pred_horizon),
-                            "series": cmp_series,
-                        }
-                    except Exception as me:
-                        cmp_results[mname] = {"error": str(me)}
-                st.session_state.compare_results = {
-                    "company": pred_company, "horizon": pred_horizon,
-                    "results": cmp_results,
-                }
-            except Exception as e:
-                st.error(f"Comparison error: {e}")
-                st.session_state.compare_results = None
-
-    cr = st.session_state.compare_results
-    if cr and cr.get("company") == pred_company and cr.get("horizon") == pred_horizon:
-        cmp_results = cr["results"]
-
-        # ── Overlay forecast chart ────────────────────────────────────────────
-        MODEL_COLORS = {
-            "TS Ensemble":  "#5367FF",
-            "Prophet":             "#00D09C",
-            "Holt-Winters (ETS)":  "#F59E0B",
-            "SARIMA":              "#8B5CF6",
-            "Theta":               "#06B6D4",
-            "XGBoost":        "#10B981",
-            "LightGBM":       "#F97316",
-            "Monte Carlo (GBM)":   "#EF4444",
-        }
-        fig_cmp = go.Figure()
-        # Historical price (use first successful result's series)
-        ref_series = next(
-            (v["series"] for v in cmp_results.values() if "series" in v), None
-        )
-        if ref_series is not None:
-            hist = ref_series.tail(180)
-            hist_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in hist.index]
-            fig_cmp.add_trace(go.Scatter(
-                x=hist_idx, y=hist.values, mode="lines", name="Historical",
-                line=dict(color=GW_NAVY, width=2),
-            ))
-        for mname, mdata in cmp_results.items():
-            if "error" in mdata:
-                continue
-            res = mdata["result"]
-            if res.error or res.forecast is None or res.forecast.empty:
+        # Dimmed other models
+        for mname, res in all_results.items():
+            if mname == best_name or res.error or res.forecast is None or res.forecast.empty:
                 continue
             fc  = res.forecast
-            col = MODEL_COLORS.get(mname, "#6B7280")
-            fore_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in fc.index]
-            fig_cmp.add_trace(go.Scatter(
-                x=fore_idx, y=fc.values, mode="lines",
-                name=mname, line=dict(color=col, width=2, dash="dash"),
+            col = MODEL_COLORS.get(mname, "#9CA3AF")
+            fig_pred.add_trace(go.Scatter(
+                x=[str(i.date()) if hasattr(i, "date") else str(i) for i in fc.index],
+                y=fc.values, mode="lines", name=mname,
+                line=dict(color=col, width=1, dash="dot"),
+                opacity=0.35,
             ))
-        if ref_series is not None:
-            _vline(fig_cmp, ref_series.index[-1])
-        groww_fig(fig_cmp, 480, f"{pred_company} — All Models ({pred_horizon}d horizon)")
-        st.plotly_chart(fig_cmp, use_container_width=True)
 
-        # ── Comparison metrics table ──────────────────────────────────────────
-        last_price = float(ref_series.iloc[-1]) if ref_series is not None else None
-        rows = []
-        for mname, mdata in cmp_results.items():
-            if "error" in mdata:
-                rows.append({
-                    "Model": mname, "1 Week": "—", "1 Month": "—",
-                    f"{pred_horizon}d": "—", "Change %": "—",
-                    "Dir Acc %": "—", "MAPE % (price)": "—", "Status": "❌ Error",
-                })
-                continue
-            res = mdata["result"]
-            if res.error or res.forecast is None or res.forecast.empty:
-                rows.append({
-                    "Model": mname, "1 Week": "—", "1 Month": "—",
-                    f"{pred_horizon}d": "—", "Change %": "—",
-                    "Dir Acc %": "—", "MAPE % (price)": "—", "Status": "❌ Error",
-                })
-                continue
-            fc   = res.forecast
-            f1w  = float(fc.iloc[min(4,  len(fc)-1)])
-            f1m  = float(fc.iloc[min(19, len(fc)-1)])
-            fend = float(fc.iloc[-1])
-            chg  = (fend - last_price) / last_price * 100 if last_price else 0
-            m    = res.metrics or {}
-            rows.append({
-                "Model":           mname,
-                "1 Week":          f"₹{f1w:,.2f}",
-                "1 Month":         f"₹{f1m:,.2f}",
-                f"{pred_horizon}d": f"₹{fend:,.2f}",
-                "Change %":        f"{chg:+.2f}%",
-                "Dir Acc %":       str(m.get("Directional Acc %", m.get("Directional Accuracy %", "—"))),
-                "MAPE % (price)":  str(m.get("MAPE % (price)", m.get("MAPE (%)", "—"))),
-                "Signal":          "🟢 BUY" if chg > 0 else "🔴 SELL",
-            })
+        # Confidence band for best model
+        if upper is not None and lower is not None and not upper.empty:
+            up_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in upper.index]
+            lo_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in lower.index]
+            fig_pred.add_trace(go.Scatter(
+                x=up_idx, y=upper.values, mode="lines",
+                name="Upper 90%", line=dict(color="rgba(83,103,255,0.25)", width=1),
+            ))
+            fig_pred.add_trace(go.Scatter(
+                x=lo_idx, y=lower.values, mode="lines",
+                name="Lower 90%", line=dict(color="rgba(83,103,255,0.25)", width=1),
+                fill="tonexty", fillcolor="rgba(83,103,255,0.07)",
+            ))
 
-        cmp_df = pd.DataFrame(rows).set_index("Model")
-        st.dataframe(cmp_df, use_container_width=True)
+        # Best model — bold
+        fore_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in forecast.index]
+        fig_pred.add_trace(go.Scatter(
+            x=fore_idx, y=forecast.values, mode="lines",
+            name=f"🥇 {best_name}",
+            line=dict(color=MODEL_COLORS.get(best_name, GW_PURPLE), width=3),
+        ))
 
-        # ── Accuracy Leaderboard ──────────────────────────────────────────────
-        st.markdown('<div class="gw-section-title" style="margin-top:18px;">🏆 Model Accuracy Leaderboard</div>', unsafe_allow_html=True)
+        _vline(fig_pred, price_series.index[-1])
+        groww_fig(fig_pred, 480, f"{pred_company} — Best Model: {best_name} ({pred_horizon}d)")
+        st.plotly_chart(fig_pred, use_container_width=True)
 
-        acc_rows = []
-        for mname, mdata in cmp_results.items():
-            if "error" in mdata:
-                continue
-            res = mdata.get("result")
-            if not res or res.error or res.forecast is None or res.forecast.empty:
-                continue
-            m = res.metrics or {}
-            dir_acc   = m.get("Directional Acc %", m.get("Directional Accuracy %", None))
-            mape_p    = m.get("MAPE % (price)", m.get("MAPE (%)", None))
-            rmse_r    = m.get("RMSE (ret)", m.get("RMSE", None))
-            try:
-                dir_acc_f = float(dir_acc) if dir_acc not in (None, "—") else 0.0
-            except Exception:
-                dir_acc_f = 0.0
-            try:
-                mape_f = float(mape_p) if mape_p not in (None, "—") else 9999.0
-            except Exception:
-                mape_f = 9999.0
-            acc_rows.append({
-                "model":    mname,
-                "dir_acc":  dir_acc_f,
-                "mape":     mape_f,
-                "dir_str":  f"{dir_acc_f:.1f}%" if dir_acc_f else "—",
-                "mape_str": f"{mape_f:.2f}%" if mape_f < 9999 else "—",
-                "rmse_str": f"{rmse_r}" if rmse_r not in (None, "—") else "—",
-            })
+        # ── Key metric cards ──────────────────────────────────────────────────
+        last_price = float(price_series.iloc[-1])
+        last_fore  = float(forecast.iloc[-1]) if not forecast.empty else last_price
+        pred_chg   = (last_fore - last_price) / last_price * 100
 
-        if acc_rows:
-            # Sort by directional accuracy desc, then MAPE asc
-            acc_rows.sort(key=lambda x: (-x["dir_acc"], x["mape"]))
-
-            # ── Winner banner ──
-            winner = acc_rows[0]
-            medals = ["🥇", "🥈", "🥉"] + ["  "] * 10
+        m_cols = st.columns(4)
+        with m_cols[0]:
             st.markdown(f"""
-            <div class="gw-card" style="background:linear-gradient(135deg,#5367FF15,#8B5CF615);
-                 border:1.5px solid #5367FF44;padding:16px 20px;margin-bottom:12px;">
-                <span style="font-size:0.75rem;color:#9CA3AF;letter-spacing:1px;">BEST MODEL</span><br>
-                <span style="font-size:1.4rem;font-weight:700;color:#5367FF;">
-                    🥇 {winner["model"]}
-                </span>
-                <span style="font-size:0.85rem;color:#6B7280;margin-left:10px;">
-                    Directional Accuracy: <b style="color:{GW_GREEN};">{winner["dir_str"]}</b>
-                    &nbsp;·&nbsp; Price MAPE: <b>{winner["mape_str"]}</b>
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
+            <div class="gw-stat-card">
+                <div class="gw-stat-label">Last Close ({_data_date_str})</div>
+                <div class="gw-stat-value">₹{last_price:,.2f}</div>
+            </div>""", unsafe_allow_html=True)
+        with m_cols[1]:
+            _chg_color = GW_GREEN if pred_chg > 0 else GW_RED
+            _stored_end = pr.get("end_date")
+            _in_label   = _stored_end.strftime("%d %b %Y") if _stored_end else f"In {pred_horizon} Days"
+            st.markdown(f"""
+            <div class="gw-stat-card">
+                <div class="gw-stat-label">{_in_label}</div>
+                <div class="gw-stat-value">₹{last_fore:,.2f}</div>
+                <div class="gw-stat-sub" style="color:{_chg_color};">{pred_chg:+.2f}%</div>
+            </div>""", unsafe_allow_html=True)
+        with m_cols[2]:
+            _acc_color = GW_GREEN if float(_da) >= 55 else GW_RED
+            st.markdown(f"""
+            <div class="gw-stat-card">
+                <div class="gw-stat-label">Backtest Dir. Accuracy</div>
+                <div class="gw-stat-value" style="color:{_acc_color};">{float(_da):.1f}%</div>
+                <div class="gw-stat-sub" style="color:#9CA3AF;">Historical only</div>
+            </div>""", unsafe_allow_html=True)
+        with m_cols[3]:
+            st.markdown(f"""
+            <div class="gw-stat-card">
+                <div class="gw-stat-label">Backtest MAPE</div>
+                <div class="gw-stat-value">{float(_mp):.2f}%</div>
+                <div class="gw-stat-sub" style="color:#9CA3AF;">Historical only</div>
+            </div>""", unsafe_allow_html=True)
 
-            # ── Ranked table ──
-            lb_data = []
-            for rank, row in enumerate(acc_rows):
-                score_color = GW_GREEN if row["dir_acc"] >= 55 else (GW_RED if row["dir_acc"] < 50 else "#F59E0B")
-                lb_data.append({
-                    "Rank":              f"{medals[rank]} #{rank+1}",
-                    "Model":             row["model"],
-                    "Directional Acc %": row["dir_str"],
-                    "Price MAPE %":      row["mape_str"],
-                    "RMSE (ret)":        row["rmse_str"],
-                    "Accuracy Grade":    "A" if row["dir_acc"] >= 60 else ("B" if row["dir_acc"] >= 55 else ("C" if row["dir_acc"] >= 50 else "D")),
-                })
-            lb_df = pd.DataFrame(lb_data).set_index("Rank")
-            st.dataframe(lb_df, use_container_width=True)
+        # ── Scenario table ────────────────────────────────────────────────────
+        st.markdown('<div class="gw-section-title" style="margin-top:20px;">Scenario Analysis</div>', unsafe_allow_html=True)
+        cur  = last_price
+        f1w  = float(forecast.iloc[min(4,  len(forecast)-1)])
+        f1m  = float(forecast.iloc[min(19, len(forecast)-1)])
+        fend = float(forecast.iloc[-1])
+        _end_label = pr["end_date"].strftime("%d %b %Y") if pr.get("end_date") else f"{pred_horizon} Days"
+        sc_df = pd.DataFrame({
+            "Horizon":  ["1 Week", "1 Month", _end_label],
+            "Forecast": [f"₹{f1w:,.2f}", f"₹{f1m:,.2f}", f"₹{fend:,.2f}"],
+            "Change":   [f"{(f1w-cur)/cur*100:+.2f}%", f"{(f1m-cur)/cur*100:+.2f}%",
+                         f"{(fend-cur)/cur*100:+.2f}%"],
+            "Signal":   [("🟢 BUY" if f1w>cur else "🔴 SELL"),
+                         ("🟢 BUY" if f1m>cur else "🔴 SELL"),
+                         ("🟢 BUY" if fend>cur else "🔴 SELL")],
+        })
+        st.dataframe(sc_df.set_index("Horizon"), use_container_width=True)
 
-            st.caption(
-                "Directional Acc % = % of test days model correctly predicted up/down direction  ·  "
-                "Price MAPE % = mean absolute % error on reconstructed price  ·  "
-                "Grade: A≥60% · B≥55% · C≥50% · D<50%"
-            )
+        # ── All-model leaderboard ─────────────────────────────────────────────
+        st.markdown('<div class="gw-section-title" style="margin-top:20px;">🏆 Model Leaderboard</div>', unsafe_allow_html=True)
+        medals = ["🥇", "🥈", "🥉"] + ["  "] * 10
+        acc_rows = []
+        for mname, res in all_results.items():
+            if res.error or res.forecast is None or res.forecast.empty:
+                continue
+            m  = res.metrics or {}
+            da = float(m.get("Directional Acc %", m.get("CV Dir Acc % (avg)", 0)) or 0)
+            mp = float(m.get("MAPE % (price)",    m.get("CV MAPE % (avg)", 9999)) or 9999)
+            fc = res.forecast
+            fe = float(fc.iloc[-1])
+            acc_rows.append({"model": mname, "dir_acc": da, "mape": mp,
+                             "end_px": fe, "chg": (fe - last_price) / last_price * 100})
+        acc_rows.sort(key=lambda x: (-x["dir_acc"], x["mape"]))
+        lb_data = []
+        for rank, row in enumerate(acc_rows):
+            grade = "A" if row["dir_acc"] >= 60 else ("B" if row["dir_acc"] >= 55 else ("C" if row["dir_acc"] >= 50 else "D"))
+            lb_data.append({
+                "Rank":           f"{medals[rank]} #{rank+1}",
+                "Model":          ("🏆 " if row["model"] == best_name else "") + row["model"],
+                "Dir Acc %":      f"{row['dir_acc']:.1f}%",
+                "MAPE %":         f"{row['mape']:.2f}%",
+                f"{pred_horizon}d Price": f"₹{row['end_px']:,.2f}",
+                "Change %":       f"{row['chg']:+.2f}%",
+                "Signal":         "🟢 BUY" if row["chg"] > 0 else "🔴 SELL",
+                "Grade":          grade,
+            })
+        st.dataframe(pd.DataFrame(lb_data).set_index("Rank"), use_container_width=True)
 
-        # ── Consensus card ────────────────────────────────────────────────────
-        buy_count  = sum(1 for r in rows if r.get("Signal") == "🟢 BUY")
-        sell_count = sum(1 for r in rows if r.get("Signal") == "🔴 SELL")
+        # ── Consensus signal ──────────────────────────────────────────────────
+        buy_count  = sum(1 for r in acc_rows if r["chg"] > 0)
+        sell_count = sum(1 for r in acc_rows if r["chg"] <= 0)
         total_sig  = buy_count + sell_count
         if total_sig > 0:
             consensus_color = GW_GREEN if buy_count >= sell_count else GW_RED
@@ -1561,18 +1445,20 @@ if active == "Predict":
             st.markdown(f"""
             <div class="gw-card" style="text-align:center;padding:16px;margin-top:8px;">
                 <span style="font-size:0.78rem;color:#9CA3AF;">MODEL CONSENSUS</span><br>
-                <span style="font-size:1.6rem;font-weight:700;color:{consensus_color};">
-                    {consensus_label}
-                </span>
+                <span style="font-size:1.6rem;font-weight:700;color:{consensus_color};">{consensus_label}</span>
                 <span style="font-size:0.82rem;color:#9CA3AF;margin-left:8px;">
-                    ({buy_count} BUY · {sell_count} SELL out of {total_sig} models)
+                    ({buy_count} BUY · {sell_count} SELL across {total_sig} models)
                 </span>
             </div>
             """, unsafe_allow_html=True)
     else:
         st.markdown("""
-        <div class="gw-card" style="text-align:center;padding:24px;color:#9CA3AF;font-size:0.82rem;">
-            Click <b>⚖️ Compare All Models</b> in the sidebar to run all 5 models side-by-side.
+        <div class="gw-card" style="text-align:center;padding:32px;">
+            <div style="font-size:2rem;margin-bottom:8px;">🔮</div>
+            <div style="font-weight:600;color:#1B2236;">Select a stock and horizon, then click Run Prediction</div>
+            <div style="color:#9CA3AF;font-size:0.82rem;margin-top:6px;">
+                All models run automatically — the best one is shown prominently.
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1591,6 +1477,12 @@ if active == "Terminal":
     </style>
     """, unsafe_allow_html=True)
     render_terminal_tab(universe, exchange)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — INSIGHTS
+# ═══════════════════════════════════════════════════════════════════════════════
+if active == "Insights":
+    render_insights_tab()
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown(f"""
