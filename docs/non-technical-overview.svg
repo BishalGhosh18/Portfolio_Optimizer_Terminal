@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 640" font-family="Inter, Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="barw" markerWidth="12" markerHeight="12" refX="6" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#5367FF"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="640" fill="#FFFFFF"/>
+
+  <!-- Title -->
+  <text x="560" y="52" text-anchor="middle" font-size="30" font-weight="800" fill="#1B2236">How It Works — in plain words</text>
+  <text x="560" y="82" text-anchor="middle" font-size="15" fill="#6B7280">Pick a top Indian stock, and get three clear answers you can actually read.</text>
+
+  <!-- STEP 1 -->
+  <rect x="50" y="130" width="320" height="360" rx="18" fill="#00D09C10" stroke="#00D09C" stroke-width="2"/>
+  <circle cx="90" cy="172" r="22" fill="#00D09C"/>
+  <text x="90" y="180" text-anchor="middle" font-size="22" font-weight="800" fill="#FFFFFF">1</text>
+  <text x="128" y="180" font-size="20" font-weight="800" fill="#1B2236">Pick a stock</text>
+  <text x="80" y="230" font-size="15" fill="#374151">Choose any of the</text>
+  <text x="80" y="256" font-size="19" font-weight="800" fill="#00D09C">Nifty 50 companies</text>
+  <text x="80" y="288" font-size="14" fill="#6B7280">India's 50 biggest, most-</text>
+  <text x="80" y="308" font-size="14" fill="#6B7280">traded businesses —</text>
+  <text x="80" y="328" font-size="14" fill="#6B7280">Reliance, TCS, HDFC Bank,</text>
+  <text x="80" y="348" font-size="14" fill="#6B7280">Infosys, and more.</text>
+  <text x="80" y="410" font-size="42" text-anchor="start">🏦 📈 💹</text>
+  <text x="80" y="460" font-size="13" fill="#9CA3AF">One click. We fetch the rest.</text>
+
+  <!-- arrow 1->2 -->
+  <line x1="378" y1="310" x2="410" y2="310" stroke="#5367FF" stroke-width="2.5" marker-end="url(#barw)"/>
+
+  <!-- STEP 2 -->
+  <rect x="418" y="130" width="320" height="360" rx="18" fill="#5367FF10" stroke="#5367FF" stroke-width="2"/>
+  <circle cx="458" cy="172" r="22" fill="#5367FF"/>
+  <text x="458" y="180" text-anchor="middle" font-size="22" font-weight="800" fill="#FFFFFF">2</text>
+  <text x="496" y="180" font-size="20" font-weight="800" fill="#1B2236">We study everything</text>
+  <text x="448" y="228" font-size="14.5" fill="#374151">Not just the price chart —</text>
+  <text x="448" y="248" font-size="14.5" fill="#374151">we look at the full picture:</text>
+
+  <text x="452" y="286" font-size="15" fill="#1B2236">📊  Price history &amp; trends</text>
+  <text x="452" y="318" font-size="15" fill="#1B2236">💰  Buying vs selling volume</text>
+  <text x="452" y="350" font-size="15" fill="#1B2236">📅  Company earnings results</text>
+  <text x="452" y="382" font-size="15" fill="#1B2236">🌏  Overall market mood</text>
+  <text x="452" y="414" font-size="15" fill="#1B2236">📰  Latest news headlines</text>
+  <text x="452" y="446" font-size="15" fill="#1B2236">👔  What analysts expect</text>
+
+  <!-- arrow 2->3 -->
+  <line x1="746" y1="310" x2="778" y2="310" stroke="#5367FF" stroke-width="2.5" marker-end="url(#barw)"/>
+
+  <!-- STEP 3 -->
+  <rect x="786" y="130" width="320" height="360" rx="18" fill="#F59E0B10" stroke="#F59E0B" stroke-width="2"/>
+  <circle cx="826" cy="172" r="22" fill="#F59E0B"/>
+  <text x="826" y="180" text-anchor="middle" font-size="22" font-weight="800" fill="#FFFFFF">3</text>
+  <text x="864" y="180" font-size="20" font-weight="800" fill="#1B2236">You get 3 answers</text>
+
+  <rect x="812" y="212" width="268" height="76" rx="12" fill="#FFFFFF" stroke="#00D09C" stroke-width="1.5"/>
+  <text x="828" y="240" font-size="15" font-weight="800" fill="#00D09C">▲▼  Up or Down?</text>
+  <text x="828" y="266" font-size="12.5" fill="#6B7280">Which way it's likely to move next</text>
+
+  <rect x="812" y="298" width="268" height="76" rx="12" fill="#FFFFFF" stroke="#5367FF" stroke-width="1.5"/>
+  <text x="828" y="326" font-size="15" font-weight="800" fill="#5367FF">💵  Future price</text>
+  <text x="828" y="352" font-size="12.5" fill="#6B7280">Where it may trade in 1–4 months</text>
+
+  <rect x="812" y="384" width="268" height="76" rx="12" fill="#FFFFFF" stroke="#F59E0B" stroke-width="1.5"/>
+  <text x="828" y="412" font-size="15" font-weight="800" fill="#F59E0B">🎯  How accurate?</text>
+  <text x="828" y="438" font-size="12.5" fill="#6B7280">Tested on past data, shown honestly</text>
+
+  <!-- Footer honesty note -->
+  <rect x="50" y="524" width="1056" height="72" rx="14" fill="#F9FAFB" stroke="#E5E7EB" stroke-width="1.5"/>
+  <text x="560" y="556" text-anchor="middle" font-size="16" font-weight="800" fill="#1B2236">🤝  Honest by design</text>
+  <text x="560" y="580" text-anchor="middle" font-size="13.5" fill="#6B7280">No tool predicts the market perfectly. We always show how confident each answer is — and whether it was properly tested — so you're never misled.</text>
+</svg>
