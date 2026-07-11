@@ -23,6 +23,7 @@ xgboost>=2.0.0
 lightgbm>=4.0.0
 catboost>=1.2.0
 prophet>=1.1.5
+torch>=2.2.0          # LSTM price-prediction model
 
 # ── Terminal tab dependencies ──────────────────────────────────────────────
 textblob>=0.18.0
@@ -30,3 +31,7 @@ feedparser>=6.0.11
 pydeck>=0.8.0
 requests>=2.31.0
 python-dotenv>=1.0.0
+
+# ── Movement Predictor: earnings/fundamentals/news layer ────────────────────
+lxml>=5.0.0            # yfinance earnings_dates + Screener.in parsing
+beautifulsoup4>=4.12.0 # Screener.in fundamentals scraping

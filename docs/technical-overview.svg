@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 760" font-family="Inter, Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arw" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#9CA3AF"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="760" fill="#FFFFFF"/>
+
+  <!-- Title -->
+  <text x="560" y="42" text-anchor="middle" font-size="27" font-weight="800" fill="#1B2236">Technical Overview — System Architecture</text>
+  <text x="560" y="68" text-anchor="middle" font-size="14" fill="#6B7280">Nifty-50 Portfolio Optimizer &amp; Movement Predictor · started 15 Mar 2026</text>
+
+  <!-- LAYER 1: DATA SOURCES -->
+  <text x="40" y="132" font-size="11" font-weight="700" fill="#9CA3AF">DATA</text>
+  <text x="40" y="146" font-size="11" font-weight="700" fill="#9CA3AF">SOURCES</text>
+  <rect x="270" y="100" width="210" height="56" rx="8" fill="#00D09C15" stroke="#00D09C" stroke-width="1.5"/>
+  <text x="375" y="124" text-anchor="middle" font-size="14" font-weight="700" fill="#1B2236">Yahoo Finance</text>
+  <text x="375" y="142" text-anchor="middle" font-size="10.5" fill="#6B7280">prices · OHLCV · earnings · news · targets · VIX</text>
+  <rect x="500" y="100" width="150" height="56" rx="8" fill="#00D09C15" stroke="#00D09C" stroke-width="1.5"/>
+  <text x="575" y="124" text-anchor="middle" font-size="14" font-weight="700" fill="#1B2236">Screener.in</text>
+  <text x="575" y="142" text-anchor="middle" font-size="10.5" fill="#6B7280">P/E · ROCE · ROE</text>
+  <rect x="670" y="100" width="180" height="56" rx="8" fill="#00D09C15" stroke="#00D09C" stroke-width="1.5"/>
+  <text x="760" y="124" text-anchor="middle" font-size="14" font-weight="700" fill="#1B2236">NewsAPI / RSS</text>
+  <text x="760" y="142" text-anchor="middle" font-size="10.5" fill="#6B7280">market news</text>
+
+  <line x1="560" y1="156" x2="560" y2="192" stroke="#9CA3AF" stroke-width="1.5" marker-end="url(#arw)"/>
+
+  <!-- LAYER 2: DATA LAYER -->
+  <text x="40" y="230" font-size="11" font-weight="700" fill="#9CA3AF">DATA</text>
+  <text x="40" y="244" font-size="11" font-weight="700" fill="#9CA3AF">LAYER</text>
+  <rect x="330" y="196" width="200" height="56" rx="8" fill="#F3F4F6" stroke="#9CA3AF" stroke-width="1.5"/>
+  <text x="430" y="220" text-anchor="middle" font-size="14" font-weight="700" fill="#1B2236">data_fetcher.py</text>
+  <text x="430" y="238" text-anchor="middle" font-size="10.5" fill="#6B7280">quotes · OHLCV</text>
+  <rect x="560" y="196" width="230" height="56" rx="8" fill="#F3F4F6" stroke="#9CA3AF" stroke-width="1.5"/>
+  <text x="675" y="220" text-anchor="middle" font-size="14" font-weight="700" fill="#1B2236">fundamentals.py</text>
+  <text x="675" y="238" text-anchor="middle" font-size="10.5" fill="#6B7280">NIFTY_50 · earnings · regime · news · screener</text>
+
+  <line x1="560" y1="252" x2="560" y2="288" stroke="#9CA3AF" stroke-width="1.5" marker-end="url(#arw)"/>
+
+  <!-- LAYER 3: ENGINES -->
+  <text x="40" y="330" font-size="11" font-weight="700" fill="#9CA3AF">ENGINES</text>
+  <rect x="74" y="292" width="180" height="56" rx="8" fill="#F3F4F6" stroke="#9CA3AF" stroke-width="1.5"/>
+  <text x="164" y="316" text-anchor="middle" font-size="13" font-weight="700" fill="#1B2236">risk_engine.py</text>
+  <text x="164" y="334" text-anchor="middle" font-size="10.5" fill="#6B7280">VaR · Sharpe · DD</text>
+  <rect x="272" y="292" width="180" height="56" rx="8" fill="#F3F4F6" stroke="#9CA3AF" stroke-width="1.5"/>
+  <text x="362" y="316" text-anchor="middle" font-size="13" font-weight="700" fill="#1B2236">optimizer.py</text>
+  <text x="362" y="334" text-anchor="middle" font-size="10.5" fill="#6B7280">5 strategies</text>
+  <rect x="470" y="292" width="180" height="56" rx="8" fill="#5367FF18" stroke="#5367FF" stroke-width="2"/>
+  <text x="560" y="316" text-anchor="middle" font-size="13" font-weight="800" fill="#5367FF">movement_predictor</text>
+  <text x="560" y="334" text-anchor="middle" font-size="10.5" fill="#6B7280">direction classifier</text>
+  <rect x="668" y="292" width="180" height="56" rx="8" fill="#5367FF18" stroke="#5367FF" stroke-width="2"/>
+  <text x="758" y="316" text-anchor="middle" font-size="13" font-weight="800" fill="#5367FF">price_forecast</text>
+  <text x="758" y="334" text-anchor="middle" font-size="10.5" fill="#6B7280">1–4 mo Monte-Carlo</text>
+  <rect x="866" y="292" width="180" height="56" rx="8" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1.5"/>
+  <text x="956" y="316" text-anchor="middle" font-size="13" font-weight="700" fill="#9CA3AF">predictor.py</text>
+  <text x="956" y="334" text-anchor="middle" font-size="10.5" fill="#9CA3AF">legacy · TA</text>
+
+  <line x1="560" y1="348" x2="560" y2="384" stroke="#9CA3AF" stroke-width="1.5" marker-end="url(#arw)"/>
+
+  <!-- LAYER 4: ML PIPELINE -->
+  <rect x="74" y="388" width="972" height="176" rx="12" fill="#5367FF0A" stroke="#5367FF" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="92" y="410" font-size="12" font-weight="800" fill="#5367FF">ML PREDICTION PIPELINE</text>
+
+  <!-- pills row -->
+  <rect x="92" y="426" width="150" height="46" rx="8" fill="#FFFFFF" stroke="#5367FF" stroke-width="1.3"/>
+  <text x="167" y="447" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1B2236">Features (~27)</text>
+  <text x="167" y="463" text-anchor="middle" font-size="9.5" fill="#6B7280">price·volume·earnings·regime</text>
+  <line x1="242" y1="449" x2="280" y2="449" stroke="#9CA3AF" stroke-width="1.5" marker-end="url(#arw)"/>
+
+  <rect x="284" y="426" width="176" height="46" rx="8" fill="#FFFFFF" stroke="#00D09C" stroke-width="1.3"/>
+  <text x="372" y="447" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1B2236">LightGBM · XGBoost</text>
+  <text x="372" y="463" text-anchor="middle" font-size="10.5" fill="#6B7280">· Logistic Regression</text>
+  <line x1="460" y1="449" x2="498" y2="449" stroke="#9CA3AF" stroke-width="1.5" marker-end="url(#arw)"/>
+
+  <rect x="502" y="426" width="120" height="46" rx="8" fill="#FFFFFF" stroke="#5367FF" stroke-width="1.3"/>
+  <text x="562" y="447" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1B2236">Ensemble</text>
+  <text x="562" y="463" text-anchor="middle" font-size="9.5" fill="#6B7280">soft-voting</text>
+  <line x1="622" y1="449" x2="660" y2="449" stroke="#9CA3AF" stroke-width="1.5" marker-end="url(#arw)"/>
+
+  <rect x="664" y="426" width="120" height="46" rx="8" fill="#FFFFFF" stroke="#F59E0B" stroke-width="1.3"/>
+  <text x="724" y="447" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1B2236">Backtest</text>
+  <text x="724" y="463" text-anchor="middle" font-size="9.5" fill="#6B7280">walk-forward</text>
+  <line x1="784" y1="449" x2="822" y2="449" stroke="#9CA3AF" stroke-width="1.5" marker-end="url(#arw)"/>
+
+  <rect x="826" y="426" width="196" height="46" rx="8" fill="#1B2236" stroke="#1B2236"/>
+  <text x="924" y="446" text-anchor="middle" font-size="12.5" font-weight="800" fill="#FFFFFF">Outputs ① ② ③</text>
+  <text x="924" y="462" text-anchor="middle" font-size="9.5" fill="#C7CBD4">Movement · Price · Accuracy</text>
+
+  <!-- context overlay -->
+  <rect x="284" y="494" width="338" height="42" rx="8" fill="#FEF3E2" stroke="#F59E0B" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="453" y="512" text-anchor="middle" font-size="11.5" font-weight="700" fill="#B45309">Live context overlay — NOT backtested</text>
+  <text x="453" y="527" text-anchor="middle" font-size="10" fill="#92400E">news · Screener.in · analysts → ±10 pt bias nudge</text>
+  <path d="M622,515 L820,515 L820,474" fill="none" stroke="#F59E0B" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#arw)"/>
+
+  <line x1="560" y1="564" x2="560" y2="600" stroke="#9CA3AF" stroke-width="1.5" marker-end="url(#arw)"/>
+
+  <!-- LAYER 5: UI -->
+  <text x="40" y="642" font-size="11" font-weight="700" fill="#9CA3AF">UI</text>
+  <text x="40" y="656" font-size="11" font-weight="700" fill="#9CA3AF">app.py</text>
+  <g font-size="12" font-weight="700">
+    <rect x="69"  y="604" width="130" height="48" rx="8" fill="#F3F4F6" stroke="#9CA3AF"/><text x="134" y="633" text-anchor="middle" fill="#1B2236">Live Feed</text>
+    <rect x="211" y="604" width="130" height="48" rx="8" fill="#F3F4F6" stroke="#9CA3AF"/><text x="276" y="633" text-anchor="middle" fill="#1B2236">Terminal</text>
+    <rect x="353" y="604" width="130" height="48" rx="8" fill="#F3F4F6" stroke="#9CA3AF"/><text x="418" y="633" text-anchor="middle" fill="#1B2236">Charts</text>
+    <rect x="495" y="604" width="130" height="48" rx="8" fill="#F3F4F6" stroke="#9CA3AF"/><text x="560" y="633" text-anchor="middle" fill="#1B2236">Risk</text>
+    <rect x="637" y="604" width="130" height="48" rx="8" fill="#F3F4F6" stroke="#9CA3AF"/><text x="702" y="633" text-anchor="middle" fill="#1B2236">Optimizer</text>
+    <rect x="779" y="604" width="130" height="48" rx="8" fill="#5367FF18" stroke="#5367FF" stroke-width="2"/><text x="844" y="633" text-anchor="middle" fill="#5367FF">Predict</text>
+    <rect x="921" y="604" width="130" height="48" rx="8" fill="#F3F4F6" stroke="#9CA3AF"/><text x="986" y="633" text-anchor="middle" fill="#1B2236">Insights</text>
+  </g>
+
+  <text x="560" y="694" text-anchor="middle" font-size="11" fill="#9CA3AF">Every signal is tagged backtestable (feeds the model) or live-overlay (nudges today's call) — honesty by design.</text>
+</svg>
