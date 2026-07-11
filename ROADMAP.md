@@ -2,7 +2,19 @@
 
 How the **Nifty-50 Portfolio Optimizer & Movement Predictor** grew — from a portfolio-analytics dashboard into a fundamentals-aware stock movement predictor — and where it's headed next.
 
+**Project started:** 15 March 2026 · **Current phase:** Phase 4 (July 2026)
+
 > Legend: ✅ Done · 🟡 In progress · ⏳ Planned
+
+### Two-minute overviews
+
+**For everyone** — what the tool does, in plain words:
+
+![Non-technical overview](docs/non-technical-overview.svg)
+
+**For engineers** — how it's built:
+
+![Technical overview](docs/technical-overview.svg)
 
 ---
 
