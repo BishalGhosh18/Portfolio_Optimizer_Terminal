@@ -43,42 +43,42 @@ graph LR
 ```mermaid
 timeline
     title Evolution of the Project
-    Phase 0 · Foundation : Live price feed : Risk analytics (VaR, Sharpe, drawdown) : Portfolio optimisation (5 strategies) : Interactive charts
-    Phase 1 · Terminal : 7-panel market terminal : Indices, order book, heatmap : News feed + TextBlob sentiment
-    Phase 2 · Prediction v5 : Walk-forward backtest engine : Prophet / SARIMA / Theta / XGB / LGB / LSTM : Conformal confidence bands : Ensemble + naive benchmark
-    Phase 3 · Movement Predictor : Direction (up/down) classification : Feature engineering + backtest : Accuracy / precision / recall / F1 : Strategy vs buy&hold / random
-    Phase 4 · Context Intelligence : Earnings + market-regime features : Volume buy-sell pressure (OBV/MFI/A-D) : News + Screener.in + analyst overlay : LGBM+XGB+LogReg ensemble : Long-term price forecast (1-4 mo) : Nifty-50 across whole app
-    Phase 5 · Signal Depth : Multi-day horizon : Universe expansion : Probability calibration : Alerts & backtest exports
+    Mar 2026 · Foundation : Live price feed : Risk analytics (VaR, Sharpe, drawdown) : Portfolio optimisation (5 strategies) : Interactive charts
+    Mar–Apr 2026 · Terminal : 7-panel market terminal : Indices, order book, heatmap : News feed + TextBlob sentiment
+    Jun 2026 · Prediction v5 : Walk-forward backtest engine : Prophet / SARIMA / Theta / XGB / LGB / LSTM : Conformal confidence bands : Ensemble + naive benchmark
+    Jul 2026 · Movement Predictor : Direction (up/down) classification : Feature engineering + backtest : Accuracy / precision / recall / F1 : Strategy vs buy&hold / random
+    Jul 2026 · Context Intelligence : Earnings + market-regime features : Volume buy-sell pressure (OBV/MFI/A-D) : News + Screener.in + analyst overlay : LGBM+XGB+LogReg ensemble : Long-term price forecast (1-4 mo) : Nifty-50 across whole app
+    H2 2026 · Signal Depth : Multi-day horizon : Universe expansion : Probability calibration : Alerts & backtest exports
 ```
 
 ---
 
 ## Phase Detail
 
-### 🧱 Phase 0 — Foundation ✅
+### 🧱 Phase 0 — Foundation ✅ · *Mar 2026*
 The portfolio-analytics core.
 - `data_fetcher.py` · `risk_engine.py` · `optimizer.py`
 - Live Feed, Charts, Risk, Optimizer tabs
 - Groww-style UI, auto-refresh
 
-### 🖥️ Phase 1 — Market Terminal ✅
+### 🖥️ Phase 1 — Market Terminal ✅ · *Mar–Apr 2026*
 - `terminal_tab.py` · `terminal_utils.py`
 - 7 panels: indices, TA chart, order book, news, geo map, strategy signals, sector heatmap
 - News + TextBlob sentiment (NewsAPI → RSS fallback)
 
-### 📉 Phase 2 — Price Prediction v5 ✅ *(now legacy)*
+### 📉 Phase 2 — Price Prediction v5 ✅ · *Jun 2026* *(now legacy)*
 - `predictor.py`: one walk-forward backtest shared by all models
 - Prophet · Holt-Winters · SARIMA · Theta · XGBoost · LightGBM · LSTM · Monte Carlo + Ensemble
 - Split-conformal confidence bands, skill-vs-naive scoring
 - *Superseded in the Predict tab by Phase 3–4; still supplies Charts-tab indicators.*
 
-### 🎯 Phase 3 — Stock Movement Predictor ✅
+### 🎯 Phase 3 — Stock Movement Predictor ✅ · *Jul 2026*
 - `movement_predictor.py`: predict **next-day direction**, not exact price
 - Feature engineering → classifier → **walk-forward backtest** → evaluation
 - Metrics: accuracy, precision, recall, F1 + trading backtest vs buy&hold / random guess
 - Honest framing: 1-day direction accuracy hovers near 50% and the UI says so
 
-### 🌐 Phase 4 — Context Intelligence + Nifty-50 + Forecast ✅
+### 🌐 Phase 4 — Context Intelligence + Nifty-50 + Forecast ✅ · *Jul 2026 (current)*
 The current release. Prediction stops being "just past prices."
 - **Backtestable features** added: earnings-cycle, market regime (Nifty + India VIX), **volume buy-sell pressure** (OBV / MFI / A-D)
 - **Model upgrade**: LightGBM + XGBoost + Logistic Regression → **soft-voting ensemble** (dropped RandomForest)
@@ -87,7 +87,7 @@ The current release. Prediction stops being "just past prices."
 - **Nifty-50** is now the whole app's universe
 - **Three headline outputs**: Movement · Future Price · Accuracy
 
-### 🚀 Phase 5 — Signal Depth 🟡 / ⏳
+### 🚀 Phase 5 — Signal Depth 🟡 / ⏳ · *H2 2026 →*
 - ⏳ **Multi-day horizon** (3/5-day direction) — the biggest lever to push accuracy above baseline
 - ⏳ **Universe expansion** beyond Nifty 50 (Next 50 / midcaps)
 - ⏳ **Probability calibration** (isotonic / Platt) for trustworthy confidence %

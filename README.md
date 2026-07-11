@@ -4,6 +4,20 @@ A Groww-style portfolio analytics dashboard for Indian equities — built with P
 
 Live price feed · Risk analysis · Portfolio optimisation · Stock Movement Predictor · Long-term price forecast · Market terminal
 
+**Started 15 March 2026** · 📍 See the phased **[Project Roadmap →](ROADMAP.md)** for how it evolved and what's next.
+
+---
+
+## Overview at a Glance
+
+**In plain words** — what the tool does:
+
+![Non-technical overview](docs/non-technical-overview.svg)
+
+**For engineers** — how it's built:
+
+![Technical overview](docs/technical-overview.svg)
+
 ---
 
 ## What This Tool Does
@@ -142,7 +156,9 @@ portfolio-optimizer/
 ├── terminal_tab.py        — Terminal tab UI: 7 panels, full-screen layout
 ├── terminal_utils.py      — Terminal back-end: index quotes, order book sim, news, signals, heatmap
 ├── requirements.txt       — Python dependencies
-└── run.sh                 — One-command launcher
+├── run.sh                 — One-command launcher
+├── ROADMAP.md             — Phased roadmap + architecture / pipeline diagrams
+└── docs/                  — Overview images (technical + non-technical SVGs)
 ```
 
 ### Module Breakdown
