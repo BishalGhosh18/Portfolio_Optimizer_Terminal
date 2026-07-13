@@ -25,11 +25,12 @@ warnings.filterwarnings("ignore")
 from data_fetcher import fetch_live_quote, fetch_ohlcv
 
 # ── Groww palette ─────────────────────────────────────────────────────────────
-_GREEN  = "#00D09C"
-_RED    = "#FF5370"
-_PURPLE = "#5367FF"
-_NAVY   = "#1B2236"
-_GRAY   = "#F6F7F8"
+# ── Dark "bull" palette (flipped for dark theme) ──
+_GREEN  = "#4CA64C"
+_RED    = "#E64A3B"
+_PURPLE = "#387ED1"
+_NAVY   = "#3C3C3C"
+_GRAY   = "#F5F6F8"
 _AMBER  = "#F59E0B"
 _WHITE  = "#FFFFFF"
 

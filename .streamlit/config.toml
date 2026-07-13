@@ -1,0 +1,8 @@
+# Zerodha (Kite) style — clean light theme, blue primary
+[theme]
+base = "light"
+primaryColor = "#387ED1"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F6F8"
+textColor = "#3C3C3C"
+font = "sans serif"

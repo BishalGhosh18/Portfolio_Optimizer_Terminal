@@ -33,11 +33,9 @@ from risk_engine import (
 )
 from optimizer import run_strategy, all_strategies_summary, STRATEGIES
 from predictor import run_all_predictions, compute_technical_indicators, MODEL_ORDER
-from movement_predictor import (
-    run_movement_analysis, monte_carlo_paths, MOVEMENT_MODELS,
-)
 from price_forecast import forecast_price
 from fundamentals import NIFTY_50, fundamental_context
+from cross_sectional import run_universe_model
 from insights_tab import render_insights_tab
 from terminal_tab import render_terminal_tab
 
@@ -49,415 +47,180 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Groww-style CSS ──────────────────────────────────────────────────────────
+# ── Zerodha (Kite) style CSS ─────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ═══ ZERODHA / KITE THEME — clean light, blue primary ═══
+   bg #FFFFFF · panel #F5F6F8 · border #E9ECEF · text #3C3C3C · muted #9AA0A6
+   blue #387ED1 · green #4CA64C · red #E64A3B */
 
 /* ── Global ── */
-html, body, [class*="css"] {
+html, body, [class*="css"], .stApp {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    background-color: #F6F7F8 !important;
-    color: #1B2236 !important;
+    background-color: #FFFFFF !important;
+    color: #3C3C3C !important;
 }
-.main .block-container {
-    background-color: #F6F7F8 !important;
-    padding-top: 1rem;
-    max-width: 100%;
-}
+.main .block-container { background-color: transparent !important; padding-top: 1rem; max-width: 100%; }
+h1, h2, h3, h4, h5 { color: #3C3C3C; }
 
-/* ── Sidebar ── */
+/* ── Sidebar (clean light) ── */
 [data-testid="stSidebar"] {
-    background-color: #1B2236 !important;
-    border-right: none !important;
+    background-color: #FBFBFC !important;
+    border-right: 1px solid #E9ECEF !important;
 }
-[data-testid="stSidebar"] * {
-    color: #E5E7EB !important;
-    font-family: 'Inter', sans-serif !important;
-}
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3 {
-    color: #FFFFFF !important;
-}
+[data-testid="stSidebar"] * { color: #3C3C3C !important; font-family: 'Inter', sans-serif !important; }
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color: #1A1A1A !important; }
 [data-testid="stSidebar"] .stSelectbox > div > div,
 [data-testid="stSidebar"] .stMultiSelect > div > div {
-    background-color: #2D3748 !important;
-    border: 1px solid #4A5568 !important;
-    color: #E5E7EB !important;
+    background-color: #FFFFFF !important; border: 1px solid #E9ECEF !important; color: #3C3C3C !important;
 }
 [data-testid="stSidebar"] .stButton > button {
-    background: linear-gradient(135deg, #5367FF 0%, #8B5CF6 100%) !important;
-    color: #FFFFFF !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-    font-size: 0.875rem !important;
-    padding: 0.5rem 1rem !important;
-    transition: all 0.2s ease !important;
-    box-shadow: 0 4px 12px rgba(83,103,255,0.3) !important;
+    background: #387ED1 !important; color: #FFFFFF !important; border: none !important;
+    border-radius: 4px !important; font-weight: 600 !important; font-size: 0.875rem !important;
+    padding: 0.5rem 1rem !important; transition: all 0.15s ease !important;
+    box-shadow: 0 1px 2px rgba(56,126,209,0.25) !important;
 }
-[data-testid="stSidebar"] .stButton > button:hover {
-    box-shadow: 0 6px 20px rgba(83,103,255,0.5) !important;
-    transform: translateY(-1px) !important;
-}
+[data-testid="stSidebar"] .stButton > button:hover { background: #2F6FB8 !important; }
 [data-testid="stSidebar"] label {
-    color: #9CA3AF !important;
-    font-size: 0.75rem !important;
-    font-weight: 500 !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.05em !important;
+    color: #9AA0A6 !important; font-size: 0.75rem !important; font-weight: 500 !important;
+    text-transform: uppercase !important; letter-spacing: 0.04em !important;
 }
+
+/* ── Widgets ── */
+.stSelectbox > div > div, .stMultiSelect > div > div,
+.stNumberInput > div > div, .stDateInput > div > div, .stTextInput > div > div {
+    background-color: #FFFFFF !important; border: 1px solid #E9ECEF !important; color: #3C3C3C !important;
+}
+.stSlider [data-baseweb="slider"] div[role="slider"] { background: #387ED1 !important; }
 
 /* ── Main buttons ── */
 .stButton > button {
-    background: linear-gradient(135deg, #5367FF 0%, #8B5CF6 100%) !important;
-    color: #FFFFFF !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-    font-family: 'Inter', sans-serif !important;
-    transition: all 0.2s ease !important;
-    box-shadow: 0 4px 12px rgba(83,103,255,0.25) !important;
+    background: #387ED1 !important; color: #FFFFFF !important; border: none !important;
+    border-radius: 4px !important; font-weight: 600 !important; font-family: 'Inter', sans-serif !important;
+    transition: all 0.15s ease !important; box-shadow: 0 1px 2px rgba(56,126,209,0.25) !important;
 }
-.stButton > button:hover {
-    box-shadow: 0 8px 24px rgba(83,103,255,0.4) !important;
-    transform: translateY(-1px) !important;
-}
+.stButton > button:hover { background: #2F6FB8 !important; box-shadow: 0 2px 6px rgba(56,126,209,0.35) !important; }
 
 /* ── Tabs ── */
 [data-testid="stTabs"] {
-    background: #FFFFFF;
-    border-radius: 12px;
-    padding: 4px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-    margin-bottom: 16px;
+    background: #FFFFFF; border: 1px solid #E9ECEF; border-radius: 6px; padding: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04); margin-bottom: 16px;
 }
 [data-testid="stTabs"] button {
-    background: transparent !important;
-    color: #6B7280 !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-family: 'Inter', sans-serif !important;
-    font-size: 0.8rem !important;
-    font-weight: 500 !important;
-    padding: 6px 14px !important;
-    transition: all 0.15s ease !important;
+    background: transparent !important; color: #6B7280 !important; border: none !important;
+    border-radius: 4px !important; font-family: 'Inter', sans-serif !important; font-size: 0.8rem !important;
+    font-weight: 500 !important; padding: 6px 14px !important; transition: all 0.15s ease !important;
 }
 [data-testid="stTabs"] button[aria-selected="true"] {
-    background: linear-gradient(135deg, #5367FF 0%, #8B5CF6 100%) !important;
-    color: #FFFFFF !important;
-    box-shadow: 0 2px 8px rgba(83,103,255,0.35) !important;
+    background: #387ED1 !important; color: #FFFFFF !important;
 }
-[data-testid="stTabs"] button:hover:not([aria-selected="true"]) {
-    background: #F3F4F6 !important;
-    color: #1B2236 !important;
-}
+[data-testid="stTabs"] button:hover:not([aria-selected="true"]) { background: #F0F3F7 !important; color: #387ED1 !important; }
 
 /* ── Metrics ── */
-[data-testid="stMetricValue"] {
-    color: #1B2236 !important;
-    font-family: 'Inter', sans-serif !important;
-    font-size: 1.5rem !important;
-    font-weight: 700 !important;
-}
-[data-testid="stMetricLabel"] {
-    color: #6B7280 !important;
-    font-family: 'Inter', sans-serif !important;
-    font-size: 0.72rem !important;
-    font-weight: 500 !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.05em !important;
-}
+[data-testid="stMetricValue"] { color: #3C3C3C !important; font-family: 'Inter', sans-serif !important; font-size: 1.5rem !important; font-weight: 700 !important; }
+[data-testid="stMetricLabel"] { color: #9AA0A6 !important; font-family: 'Inter', sans-serif !important; font-size: 0.72rem !important; font-weight: 500 !important; text-transform: uppercase !important; letter-spacing: 0.05em !important; }
 [data-testid="stMetricDelta"] svg { display: none !important; }
 [data-testid="stMetricDelta"] { font-family: 'Inter', sans-serif !important; font-size: 0.82rem !important; font-weight: 600 !important; }
 
 /* ── DataFrames ── */
-[data-testid="stDataFrame"] {
-    border-radius: 10px !important;
-    overflow: hidden !important;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
-}
+[data-testid="stDataFrame"] { border-radius: 6px !important; overflow: hidden !important; border: 1px solid #E9ECEF !important; box-shadow: none !important; }
 
-/* ── Divider ── */
-hr { border-color: #E5E7EB !important; }
-
-/* ── Spinner ── */
-.stSpinner > div { border-color: #5367FF transparent transparent transparent !important; }
-
-/* ── Progress ── */
-.stProgress > div > div { background: linear-gradient(135deg, #5367FF, #8B5CF6) !important; border-radius: 4px !important; }
+/* ── Divider / Spinner / Progress ── */
+hr { border-color: #E9ECEF !important; }
+.stSpinner > div { border-color: #387ED1 transparent transparent transparent !important; }
+.stProgress > div > div { background: #387ED1 !important; border-radius: 4px !important; }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #F6F7F8; }
-::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+::-webkit-scrollbar-track { background: #F5F6F8; }
+::-webkit-scrollbar-thumb { background: #D5D9DE; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #387ED1; }
 
 /* ── Custom components ── */
-
 .gw-header {
-    background: linear-gradient(135deg, #1B2236 0%, #2D3748 100%);
-    border-radius: 16px;
-    padding: 20px 24px;
-    margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    box-shadow: 0 4px 20px rgba(27,34,54,0.15);
+    background: #FFFFFF; border: 1px solid #E9ECEF; border-radius: 8px; padding: 18px 22px;
+    margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
-.gw-header-title {
-    color: #FFFFFF;
-    font-size: 1.35rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-}
-.gw-header-sub {
-    color: #9CA3AF;
-    font-size: 0.78rem;
-    margin-top: 2px;
-}
+.gw-header-title { color: #1A1A1A; font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; }
+.gw-header-sub  { color: #9AA0A6; font-size: 0.78rem; margin-top: 2px; }
 .gw-live-badge {
-    background: rgba(0,208,156,0.15);
-    border: 1px solid rgba(0,208,156,0.4);
-    color: #00D09C;
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 4px 10px;
-    border-radius: 20px;
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
+    background: rgba(76,166,76,0.10); border: 1px solid rgba(76,166,76,0.35); color: #4CA64C;
+    font-size: 0.7rem; font-weight: 600; padding: 4px 10px; border-radius: 4px;
+    display: inline-flex; align-items: center; gap: 5px;
 }
-.gw-dot {
-    width: 7px; height: 7px;
-    background: #00D09C;
-    border-radius: 50%;
-    animation: pulse 1.5s infinite;
-    display: inline-block;
-}
-@keyframes pulse {
-    0%,100% { opacity:1; transform:scale(1); }
-    50%      { opacity:0.5; transform:scale(0.8); }
-}
+.gw-dot { width: 7px; height: 7px; background: #4CA64C; border-radius: 50%; animation: pulse 1.5s infinite; display: inline-block; }
+@keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.5; transform:scale(0.8); } }
 
 .gw-card {
-    background: #FFFFFF;
-    border-radius: 12px;
-    padding: 16px 20px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
-    margin-bottom: 12px;
-    border: 1px solid #F3F4F6;
-    transition: box-shadow 0.2s ease;
+    background: #FFFFFF; border-radius: 6px; padding: 16px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 12px; border: 1px solid #E9ECEF;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
-.gw-card:hover {
-    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-}
+.gw-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-color: #DCE0E5; }
 
 .gw-stock-card {
-    background: #FFFFFF;
-    border-radius: 12px;
-    padding: 16px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-    border: 1px solid #F3F4F6;
-    margin-bottom: 8px;
-    transition: all 0.2s ease;
+    background: #FFFFFF; border-radius: 6px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    border: 1px solid #E9ECEF; margin-bottom: 8px; transition: all 0.15s ease;
 }
-.gw-stock-card:hover {
-    box-shadow: 0 4px 16px rgba(83,103,255,0.1);
-    border-color: rgba(83,103,255,0.2);
-    transform: translateY(-1px);
-}
-.gw-stock-name {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #1B2236;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.gw-stock-ticker {
-    font-size: 0.7rem;
-    color: #9CA3AF;
-    font-weight: 400;
-}
-.gw-price {
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: #1B2236;
-    margin-top: 6px;
-}
-.gw-change-up {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: #00D09C;
-    background: rgba(0,208,156,0.1);
-    padding: 2px 8px;
-    border-radius: 20px;
-    display: inline-block;
-    margin-top: 4px;
-}
-.gw-change-down {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: #FF5370;
-    background: rgba(255,83,112,0.1);
-    padding: 2px 8px;
-    border-radius: 20px;
-    display: inline-block;
-    margin-top: 4px;
-}
-.gw-change-flat {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: #6B7280;
-    background: #F3F4F6;
-    padding: 2px 8px;
-    border-radius: 20px;
-    display: inline-block;
-    margin-top: 4px;
-}
-.gw-meta {
-    font-size: 0.68rem;
-    color: #9CA3AF;
-    margin-top: 8px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2px;
-}
-.gw-meta span { color: #6B7280; }
-.gw-meta b { color: #374151; }
+.gw-stock-card:hover { box-shadow: 0 2px 8px rgba(56,126,209,0.12); border-color: rgba(56,126,209,0.35); }
+.gw-stock-name { font-size: 0.85rem; font-weight: 600; color: #3C3C3C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gw-stock-ticker { font-size: 0.7rem; color: #9AA0A6; font-weight: 400; }
+.gw-price { font-size: 1.15rem; font-weight: 700; color: #3C3C3C; margin-top: 6px; }
+.gw-change-up { font-size: 0.78rem; font-weight: 600; color: #4CA64C; background: rgba(76,166,76,0.10); padding: 2px 8px; border-radius: 4px; display: inline-block; margin-top: 4px; }
+.gw-change-down { font-size: 0.78rem; font-weight: 600; color: #E64A3B; background: rgba(230,74,59,0.10); padding: 2px 8px; border-radius: 4px; display: inline-block; margin-top: 4px; }
+.gw-change-flat { font-size: 0.78rem; font-weight: 600; color: #6B7280; background: #F0F3F7; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-top: 4px; }
+.gw-meta { font-size: 0.68rem; color: #9AA0A6; margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+.gw-meta span { color: #9AA0A6; }
+.gw-meta b { color: #4B5563; }
 
-.gw-section-title {
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: #1B2236;
-    margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-.gw-section-title::before {
-    content: '';
-    width: 3px; height: 18px;
-    background: linear-gradient(180deg, #5367FF, #8B5CF6);
-    border-radius: 2px;
-    display: inline-block;
-}
+.gw-section-title { font-size: 0.95rem; font-weight: 700; color: #3C3C3C; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.gw-section-title::before { content: ''; width: 3px; height: 18px; background: #387ED1; border-radius: 2px; display: inline-block; }
 
 .gw-ticker-bar {
-    background: #FFFFFF;
-    border-radius: 10px;
-    padding: 10px 16px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-    border: 1px solid #F3F4F6;
-    overflow-x: auto;
-    white-space: nowrap;
-    margin-bottom: 16px;
-    font-size: 0.78rem;
-    font-weight: 500;
+    background: #FFFFFF; border-radius: 6px; padding: 10px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    border: 1px solid #E9ECEF; overflow-x: auto; white-space: nowrap; margin-bottom: 16px;
+    font-size: 0.78rem; font-weight: 500;
 }
-.gw-tick-up   { color: #00D09C; }
-.gw-tick-down { color: #FF5370; }
-.gw-tick-flat { color: #9CA3AF; }
+.gw-tick-up { color: #4CA64C; }
+.gw-tick-down { color: #E64A3B; }
+.gw-tick-flat { color: #9AA0A6; }
 
-.gw-stat-card {
-    background: #FFFFFF;
-    border-radius: 12px;
-    padding: 18px 20px;
-    text-align: center;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-    border: 1px solid #F3F4F6;
-}
-.gw-stat-label {
-    font-size: 0.72rem;
-    font-weight: 500;
-    color: #9CA3AF;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-.gw-stat-value {
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: #1B2236;
-    margin-top: 4px;
-}
-.gw-stat-sub {
-    font-size: 0.75rem;
-    margin-top: 2px;
-    font-weight: 600;
-}
+.gw-stat-card { background: #FFFFFF; border-radius: 6px; padding: 18px 20px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #E9ECEF; }
+.gw-stat-label { font-size: 0.72rem; font-weight: 500; color: #9AA0A6; text-transform: uppercase; letter-spacing: 0.05em; }
+.gw-stat-value { font-size: 1.4rem; font-weight: 700; color: #3C3C3C; margin-top: 4px; }
+.gw-stat-sub { font-size: 0.75rem; margin-top: 2px; font-weight: 600; }
 
-.gw-pill-green {
-    background: rgba(0,208,156,0.1);
-    color: #00D09C;
-    border-radius: 20px;
-    padding: 3px 10px;
-    font-size: 0.72rem;
-    font-weight: 600;
-}
-.gw-pill-red {
-    background: rgba(255,83,112,0.1);
-    color: #FF5370;
-    border-radius: 20px;
-    padding: 3px 10px;
-    font-size: 0.72rem;
-    font-weight: 600;
-}
-.gw-pill-purple {
-    background: rgba(83,103,255,0.1);
-    color: #5367FF;
-    border-radius: 20px;
-    padding: 3px 10px;
-    font-size: 0.72rem;
-    font-weight: 600;
-}
+.gw-pill-green  { background: rgba(76,166,76,0.10); color: #4CA64C; border-radius: 4px; padding: 3px 10px; font-size: 0.72rem; font-weight: 600; }
+.gw-pill-red    { background: rgba(230,74,59,0.10); color: #E64A3B; border-radius: 4px; padding: 3px 10px; font-size: 0.72rem; font-weight: 600; }
+.gw-pill-purple { background: rgba(56,126,209,0.10); color: #387ED1; border-radius: 4px; padding: 3px 10px; font-size: 0.72rem; font-weight: 600; }
 
-.gw-score-bar-wrap {
-    background: #F3F4F6;
-    border-radius: 20px;
-    height: 8px;
-    margin-top: 6px;
-    overflow: hidden;
-}
-.gw-score-bar {
-    height: 8px;
-    border-radius: 20px;
-}
+.gw-score-bar-wrap { background: #EEF0F2; border-radius: 20px; height: 8px; margin-top: 6px; overflow: hidden; }
+.gw-score-bar { height: 8px; border-radius: 20px; }
 
 .gw-welcome {
-    background: linear-gradient(135deg, #1B2236 0%, #2D3748 50%, #1e3a5f 100%);
-    border-radius: 16px;
-    padding: 40px 32px;
-    text-align: center;
-    color: #FFFFFF;
-    margin: 20px 0;
+    background: #FFFFFF; border: 1px solid #E9ECEF; border-radius: 8px; padding: 40px 32px;
+    text-align: center; color: #3C3C3C; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
-/* model info box */
-.gw-info-box {
-    background: rgba(83,103,255,0.05);
-    border: 1px solid rgba(83,103,255,0.2);
-    border-radius: 10px;
-    padding: 14px 18px;
-    font-size: 0.8rem;
-    color: #374151;
-    margin-bottom: 16px;
-}
-.gw-info-box b { color: #5367FF; }
+.gw-info-box { background: rgba(56,126,209,0.05); border: 1px solid rgba(56,126,209,0.20); border-radius: 6px; padding: 14px 18px; font-size: 0.8rem; color: #4B5563; margin-bottom: 16px; }
+.gw-info-box b { color: #387ED1; }
 </style>
 """, unsafe_allow_html=True)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-GW_GREEN  = "#00D09C"
-GW_RED    = "#FF5370"
-GW_PURPLE = "#5367FF"
-GW_NAVY   = "#1B2236"
-GW_GRAY   = "#F6F7F8"
+# ── Zerodha (Kite) palette ──
+GW_GREEN  = "#4CA64C"   # gain / up (Kite green)
+GW_RED    = "#E64A3B"   # loss / down (Kite red)
+GW_PURPLE = "#387ED1"   # primary accent → Zerodha blue
+GW_NAVY   = "#3C3C3C"   # primary dark text / chart lines
+GW_GRAY   = "#F5F6F8"   # light panel surface
 
-PALETTE = [GW_PURPLE, "#8B5CF6", GW_GREEN, GW_RED,
-           "#F59E0B", "#06B6D4", "#EC4899", "#10B981", "#F97316", "#6366F1"]
+PALETTE = [GW_PURPLE, "#4CA64C", "#F59E0B", GW_RED,
+           "#06B6D4", "#8B5CF6", "#EC4899", "#10B981", "#F97316", "#6366F1"]
 
 def _vline(fig: go.Figure, x_val, label: str = "Today"):
     xs = str(x_val.date()) if hasattr(x_val, "date") else str(x_val)
@@ -470,40 +233,40 @@ def _vline(fig: go.Figure, x_val, label: str = "Today"):
                        xanchor="left")
 
 def groww_fig(fig: go.Figure, height: int = 380, title: str = "") -> go.Figure:
-    """Apply Groww-style light theme to a plotly figure."""
+    """Apply the Zerodha (Kite) light theme to a plotly figure."""
     fig.update_layout(
         height=height,
         title=dict(
             text=f"<b>{title}</b>",
-            font=dict(family="Inter", size=13, color=GW_NAVY),
+            font=dict(family="Inter", size=13, color="#3C3C3C"),
             x=0.01, y=0.99,
         ),
         paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FAFAFA",
+        plot_bgcolor="#FBFCFD",
         font=dict(family="Inter", color="#6B7280", size=10),
         legend=dict(
             bgcolor="rgba(255,255,255,0.9)",
-            bordercolor="#E5E7EB",
+            bordercolor="#E9ECEF",
             borderwidth=1,
-            font=dict(family="Inter", color="#374151", size=10),
+            font=dict(family="Inter", color="#3C3C3C", size=10),
         ),
         xaxis=dict(
-            gridcolor="#F3F4F6", linecolor="#E5E7EB",
-            tickfont=dict(family="Inter", color="#9CA3AF", size=9),
+            gridcolor="#EEF0F2", linecolor="#E9ECEF",
+            tickfont=dict(family="Inter", color="#9AA0A6", size=9),
             title_font=dict(family="Inter", color="#6B7280"),
             showgrid=True, zeroline=False,
         ),
         yaxis=dict(
-            gridcolor="#F3F4F6", linecolor="#E5E7EB",
-            tickfont=dict(family="Inter", color="#9CA3AF", size=9),
+            gridcolor="#EEF0F2", linecolor="#E9ECEF",
+            tickfont=dict(family="Inter", color="#9AA0A6", size=9),
             title_font=dict(family="Inter", color="#6B7280"),
             showgrid=True, zeroline=False,
         ),
         margin=dict(l=50, r=20, t=40, b=40),
         hoverlabel=dict(
-            bgcolor="#1B2236",
+            bgcolor="#3C3C3C",
             font=dict(family="Inter", color="#FFFFFF", size=11),
-            bordercolor="#2D3748",
+            bordercolor="#387ED1",
         ),
     )
     return fig
@@ -597,7 +360,7 @@ if len(selected_names) < 2:
             <span class="gw-pill-purple">✓ Movement Predictor</span>
         </div>
         <div style="color:#6B7280;font-size:0.78rem;margin-top:20px;">
-            130+ NSE & BSE stocks · 5 optimization strategies · up/down direction classifiers
+            Nifty 50 · 5 optimization strategies · up/down movement predictor + long-term forecast
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -711,14 +474,15 @@ div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] button {
     font-size: 0.78rem !important;
     font-weight: 500 !important;
     padding: 8px 4px !important;
-    border: 1px solid #E5E7EB !important;
-    background: #ffffff !important;
+    border: 1px solid #E9ECEF !important;
+    background: #FFFFFF !important;
     color: #6B7280 !important;
     transition: all 0.15s ease !important;
 }
 div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] button:hover {
-    background: #F3F4F6 !important;
-    color: #1B2236 !important;
+    background: #F0F3F7 !important;
+    color: #387ED1 !important;
+    border-color: #C9D6E5 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -738,16 +502,16 @@ active_idx = next((i for i, t in enumerate(TAB_NAMES) if t.split(" ", 1)[1] == a
 st.markdown(f"""
 <style>
 div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:nth-child({active_idx + 1}) button {{
-    background: linear-gradient(135deg, #5367FF, #8B5CF6) !important;
-    color: #ffffff !important;
-    border: none !important;
+    background: #387ED1 !important;
+    color: #FFFFFF !important;
+    border: 1px solid #387ED1 !important;
     font-weight: 600 !important;
-    box-shadow: 0 2px 8px rgba(83,103,255,0.35) !important;
+    box-shadow: 0 1px 3px rgba(56,126,209,0.3) !important;
 }}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div style="border-top:2px solid #E5E7EB;margin:8px 0 16px;"></div>', unsafe_allow_html=True)
+st.markdown('<div style="border-top:1px solid #E9ECEF;margin:8px 0 16px;"></div>', unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -878,7 +642,7 @@ if active == "Charts":
             x=ohlcv.index, open=ohlcv["Open"], high=ohlcv["High"],
             low=ohlcv["Low"], close=ohlcv["Close"],
             increasing_line_color=GW_GREEN, decreasing_line_color=GW_RED,
-            increasing_fillcolor=f"rgba(0,208,156,0.3)", decreasing_fillcolor=f"rgba(255,83,112,0.3)",
+            increasing_fillcolor=f"rgba(76,166,76,0.3)", decreasing_fillcolor=f"rgba(255,83,112,0.3)",
             name="OHLC",
         ))
         for win, colour in [(20, "#F59E0B"), (50, GW_PURPLE), (200, "#EC4899")]:
@@ -892,10 +656,10 @@ if active == "Charts":
             mid = ohlcv["Close"].rolling(20).mean()
             std = ohlcv["Close"].rolling(20).std()
             fig_candle.add_trace(go.Scatter(x=ohlcv.index, y=mid + 2*std, mode="lines",
-                name="BB+", line=dict(width=1, color="rgba(83,103,255,0.3)"), fill=None))
+                name="BB+", line=dict(width=1, color="rgba(56,126,209,0.3)"), fill=None))
             fig_candle.add_trace(go.Scatter(x=ohlcv.index, y=mid - 2*std, mode="lines",
-                name="BB-", line=dict(width=1, color="rgba(83,103,255,0.3)"),
-                fill="tonexty", fillcolor="rgba(83,103,255,0.04)"))
+                name="BB-", line=dict(width=1, color="rgba(56,126,209,0.3)"),
+                fill="tonexty", fillcolor="rgba(56,126,209,0.04)"))
 
         groww_fig(fig_candle, 440, f"{chart_name}")
         fig_candle.update_layout(xaxis_rangeslider_visible=False)
@@ -903,7 +667,7 @@ if active == "Charts":
 
         fig_vol = go.Figure(go.Bar(
             x=ohlcv.index, y=ohlcv.get("Volume", pd.Series()),
-            marker_color=[f"rgba(0,208,156,0.5)" if c >= o else f"rgba(255,83,112,0.5)"
+            marker_color=[f"rgba(76,166,76,0.5)" if c >= o else f"rgba(255,83,112,0.5)"
                           for c, o in zip(ohlcv["Close"], ohlcv["Open"])],
             marker_line_width=0,
             name="Volume",
@@ -920,7 +684,7 @@ if active == "Charts":
                     fig_rsi.add_trace(go.Scatter(x=ind.index, y=ind["RSI_14"], mode="lines",
                         line=dict(color=GW_PURPLE, width=2), name="RSI(14)"))
                     fig_rsi.add_hrect(y0=70, y1=100, fillcolor="rgba(255,83,112,0.06)", line_width=0)
-                    fig_rsi.add_hrect(y0=0, y1=30,  fillcolor="rgba(0,208,156,0.06)",   line_width=0)
+                    fig_rsi.add_hrect(y0=0, y1=30,  fillcolor="rgba(76,166,76,0.06)",   line_width=0)
                     fig_rsi.add_hline(y=70, line_color=GW_RED,   line_dash="dot", line_width=1)
                     fig_rsi.add_hline(y=30, line_color=GW_GREEN, line_dash="dot", line_width=1)
                     groww_fig(fig_rsi, 220, "RSI (14)")
@@ -931,7 +695,7 @@ if active == "Charts":
                     hist = ind["MACD"] - ind["MACD_Signal"]
                     fig_macd = go.Figure()
                     fig_macd.add_trace(go.Bar(x=ind.index, y=hist,
-                        marker_color=[f"rgba(0,208,156,0.5)" if v >= 0 else f"rgba(255,83,112,0.5)" for v in hist],
+                        marker_color=[f"rgba(76,166,76,0.5)" if v >= 0 else f"rgba(255,83,112,0.5)" for v in hist],
                         marker_line_width=0, name="Histogram"))
                     fig_macd.add_trace(go.Scatter(x=ind.index, y=ind["MACD"], mode="lines",
                         name="MACD", line=dict(color=GW_PURPLE, width=1.5)))
@@ -945,7 +709,7 @@ if active == "Charts":
         fig_line = go.Figure(go.Scatter(
             x=prices.index, y=prices[chart_name], mode="lines", name=chart_name,
             line=dict(color=GW_PURPLE, width=2),
-            fill="tozeroy", fillcolor="rgba(83,103,255,0.06)",
+            fill="tozeroy", fillcolor="rgba(56,126,209,0.06)",
         ))
         groww_fig(fig_line, 400, chart_name)
         st.plotly_chart(fig_line, use_container_width=True)
@@ -1122,7 +886,7 @@ if active == "Optimizer":
 # TAB 5 — PREDICT
 # ═══════════════════════════════════════════════════════════════════════════════
 if active == "Predict":
-    # Self-contained tab — hide the sidebar (controls live inline below).
+    # Self-contained tab — hide the sidebar (controls inline below).
     st.markdown("""
     <style>
     [data-testid="stSidebar"]                 { display: none !important; }
@@ -1132,421 +896,269 @@ if active == "Predict":
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="gw-section-title">🎯 Stock Movement Predictor '
-                '<span style="font-size:0.72rem;color:#9CA3AF;font-weight:400;">· Nifty 50</span></div>',
+    st.markdown('<div class="gw-section-title">🎯 Trading Signal Model '
+                '<span style="font-size:0.72rem;color:#6B7280;font-weight:400;">· Nifty 50 · walk-forward validated · cost-aware</span></div>',
                 unsafe_allow_html=True)
     st.markdown(
         '<div style="color:#6B7280;font-size:0.86rem;margin:-6px 0 14px;">'
-        'Next-day <b>direction</b> (up / down) from price, <b>earnings</b> &amp; <b>market-regime</b> features — '
-        'walk-forward backtested — then adjusted by a <b>live context</b> read of news, fundamentals &amp; analysts.</div>',
+        'One <b>pooled cross-sectional model</b> trained on the whole Nifty-50 ranks every stock by calibrated '
+        'probability of rising over the horizon. Evaluated by <b>walk-forward CV</b> with an embargo, '
+        '<b>net-of-cost</b> long/short backtest, and a significance test — then a clear <b>deploy verdict</b>.</div>',
         unsafe_allow_html=True)
 
-    MV_COLORS = {
-        "Ensemble":            "#5367FF",
-        "LightGBM":            "#00D09C",
-        "XGBoost":             "#F59E0B",
-        "Logistic Regression": "#8B5CF6",
-    }
-
-    # ── Inline controls (Nifty-50 focused) ────────────────────────────────────
-    _nifty_names = list(NIFTY_50.keys())
-    c_stock, c_hist, c_test, c_run = st.columns([2.4, 1, 1.2, 1.3])
-    with c_stock:
-        pred_company = st.selectbox("Stock (Nifty 50)", _nifty_names,
-                                    index=_nifty_names.index("Reliance Industries"))
-    with c_hist:
-        mv_history = st.selectbox("History", ["2y", "3y", "5y", "10y"], index=2)
-    with c_test:
-        mv_test_pct = st.slider("Backtest %", 10, 40, 25, step=5)
-    with c_run:
+    # ── Controls ──────────────────────────────────────────────────────────────
+    cv, ch, cs, ct, cc, cr = st.columns([1.7, 1, 1.2, 1.1, 1.1, 1.1])
+    with cv:
+        mv_view = st.radio("View", ["🌐 Universe Ranking", "🔎 Single Stock"], horizontal=True)
+    with ch:
+        mv_h = st.selectbox("Horizon (days)", [5, 10, 20], index=1)
+    with cs:
+        mv_ls = st.selectbox("Strategy", ["Long / Short", "Long only"])
+    with ct:
+        mv_top = st.slider("Top/bottom %", 10, 40, 20, step=5)
+    with cc:
+        mv_cost = st.slider("Cost (bps/side)", 0, 30, 10, step=5)
+    with cr:
         st.write("")
-        pred_btn = st.button("🎯  Run Predictor", use_container_width=True, type="primary")
-    with st.expander("⚙️ Classifiers & sources", expanded=False):
-        mv_models = st.multiselect("Classifiers", MOVEMENT_MODELS, default=MOVEMENT_MODELS)
-        st.caption("Model features (backtested): price/technical · earnings-cycle · market regime (Nifty + India VIX). "
-                   "Live context (not backtested): per-stock news, Screener.in fundamentals, analyst view.")
+        mv_run = st.button("⚙️  Run Model", use_container_width=True, type="primary")
 
-    mv_ticker     = NIFTY_50.get(pred_company, pred_company)
-    _mv_test_frac = mv_test_pct / 100.0
-    _mv_cache_key = f"{pred_company}|{mv_history}|{sorted(mv_models)}|{mv_test_pct}"
-    _mv_cached    = st.session_state.get("mv_result")
-    _mv_valid     = _mv_cached and _mv_cached.get("cache_key") == _mv_cache_key
+    _key = f"{mv_h}|{mv_ls}|{mv_top}|{mv_cost}"
+    _cached = st.session_state.get("univ_result")
+    _valid  = _cached and _cached.get("key") == _key
 
-    if pred_btn or not _mv_valid:
+    if mv_run or not _valid:
         try:
-            if not mv_models:
-                raise ValueError("Select at least one classifier (⚙️ Classifiers & sources).")
-            with st.spinner(f"Pulling {mv_history} of data for {pred_company} & engineering features…"):
-                _ohlcv = fetch_ohlcv(mv_ticker, period=mv_history)
-            if _ohlcv is None or _ohlcv.empty or "Close" not in _ohlcv.columns:
-                raise ValueError(f"No OHLCV data for {pred_company}.")
-
-            with st.spinner("Training on price + earnings + market-regime features & backtesting…"):
-                mv_out = run_movement_analysis(
-                    _ohlcv, models=mv_models, test_frac=_mv_test_frac, ticker=mv_ticker)
-            with st.spinner("Reading live context — news, Screener.in fundamentals, analysts…"):
-                mv_ctx = fundamental_context(mv_ticker)
-            with st.spinner("Projecting long-term price (1–4 months)…"):
-                _target = (mv_ctx.get("analyst") or {}).get("target_mean")
-                mv_fc = forecast_price(_ohlcv["Close"], analyst_target=_target)
-
-            st.session_state.mv_result = {
-                "cache_key": _mv_cache_key,
-                "company":   pred_company,
-                "out":       mv_out,
-                "ctx":       mv_ctx,
-                "fc":        mv_fc,
-                "colors":    MV_COLORS,
-            }
+            _prog = st.progress(0.0, text="Building the Nifty-50 panel…")
+            def _pcb(i, tot, name):
+                _prog.progress(min((i + 1) / tot * 0.55, 0.55),
+                               text=f"Fetching & engineering features — {name} ({i+1}/{tot})")
+            with st.spinner("Training pooled model, walk-forward backtesting & validating… (~60–90s)"):
+                res = run_universe_model(
+                    NIFTY_50, period="6y", horizon=mv_h,
+                    top_frac=mv_top / 100.0, long_short=(mv_ls == "Long / Short"),
+                    cost_bps=float(mv_cost), slippage_bps=float(mv_cost) * 0.5,
+                    n_folds=4, progress_cb=_pcb)
+            _prog.empty()
+            st.session_state.univ_result = {"key": _key, "res": res}
         except Exception as e:
-            st.error(f"Movement predictor error: {e}")
-            st.session_state.mv_result = None
+            st.error(f"Model error: {e}")
+            st.session_state.univ_result = None
 
-    mvr = st.session_state.get("mv_result")
-    if mvr and mvr.get("out"):
-        out        = mvr["out"]
-        results    = out["results"]
-        best_name  = out["best_name"]
-        base       = out["baselines"]
-        MV_COLORS  = mvr["colors"]
-        close      = out["close"]
-        best       = results[best_name]
-        ctx        = mvr.get("ctx") or {}
+    _ur = st.session_state.get("univ_result")
+    if _ur and _ur.get("res"):
+        res = _ur["res"]
+        _vc = {"GREEN": GW_GREEN, "AMBER": "#F59E0B", "RED": GW_RED}[res.verdict]
+        _vemoji = {"GREEN": "✅", "AMBER": "⚠️", "RED": "⛔"}[res.verdict]
 
-        # ── Tomorrow's headline call (from the best classifier) ───────────────
-        _sig       = best.next_signal
-        _prob      = best.next_up_prob
-        _sig_prob  = _prob if _sig == "UP" else (1 - _prob)
-        _sig_color = GW_GREEN if _sig == "UP" else GW_RED
-        _last_dt   = close.index[-1]
-        _last_str  = _last_dt.strftime("%d %b %Y") if hasattr(_last_dt, "strftime") else str(_last_dt)
+        # ── Shared verdict banner ─────────────────────────────────────────────
+        _lo, _hi = res.auc_ci
+        st.markdown(f"""
+        <div class="gw-card" style="border:1.5px solid {_vc}66;
+             background:radial-gradient(420px 120px at 15% 0%,{_vc}1A,transparent 70%),#FFFFFF;
+             box-shadow:0 0 26px {_vc}22;padding:16px 22px;margin-bottom:14px;">
+            <div style="font-size:0.70rem;color:#6B7280;letter-spacing:1px;">
+                DEPLOY VERDICT &nbsp;·&nbsp; {res.n_stocks} stocks · {res.n_rows:,} rows · {res.horizon}-day horizon · {res.n_features} features
+            </div>
+            <span style="font-size:1.7rem;font-weight:800;color:{_vc};text-shadow:0 0 16px {_vc}55;">
+                {_vemoji} {res.verdict}</span>
+            <span style="font-size:0.9rem;color:#4B5563;margin-left:12px;">{res.verdict_reason}</span>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # ── Context blend: nudge the backtested prob by the live-overlay bias ──
-        _bias      = float(ctx.get("bias", 0.0))          # −1..+1
-        _blend_prob = float(min(max(_prob + 0.10 * _bias, 0.0), 1.0))
-        _comb_sig  = "UP" if _blend_prob >= 0.5 else "DOWN"
-        _comb_prob = _blend_prob if _comb_sig == "UP" else (1 - _blend_prob)
-        _comb_color = GW_GREEN if _comb_sig == "UP" else GW_RED
-        _ctx_label = ctx.get("label", "Neutral")
-        _ctx_color = GW_GREEN if _bias > 0.15 else GW_RED if _bias < -0.15 else "#F59E0B"
-
-        fc = mvr.get("fc")
-        _acc      = best.accuracy * 100
-        _acc_col  = GW_GREEN if _acc >= 55 else "#F59E0B" if _acc >= 50 else GW_RED
-        _base_acc = base["majority_acc"]
-
-        st.markdown(f'<div style="font-size:0.70rem;color:#9CA3AF;letter-spacing:1px;margin-bottom:8px;">'
-                    f'{mvr["company"]} &nbsp;·&nbsp; last close <b>₹{best.last_close:,.2f}</b> on {_last_str}'
-                    f' &nbsp;·&nbsp; model: {best_name} &nbsp;·&nbsp; {out.get("n_features",0)} features</div>',
-                    unsafe_allow_html=True)
-
-        # ── THREE HEADLINE OUTPUTS: Movement · Long-term price · Accuracy ─────
-        h1, h2, h3 = st.columns(3)
-        with h1:
-            st.markdown(f"""
-            <div class="gw-card" style="padding:16px 18px;border:1.5px solid {_comb_color}55;
-                 background:linear-gradient(135deg,{_comb_color}12,#5367FF08);height:100%;">
-                <div style="font-size:0.68rem;color:#9CA3AF;letter-spacing:1px;">① MOVEMENT · short-term</div>
-                <div style="font-size:1.9rem;font-weight:800;color:{_comb_color};margin:4px 0;">
-                    {'▲' if _comb_sig=='UP' else '▼'} {_comb_sig}</div>
-                <div style="font-size:0.82rem;color:#6B7280;">conviction
-                    <b style="color:{_comb_color};">{_comb_prob*100:.0f}%</b></div>
-                <div style="font-size:0.72rem;color:#9CA3AF;margin-top:4px;">
-                    model {_sig} ({_sig_prob*100:.0f}%) + context {_ctx_label} ({_bias:+.2f})</div>
-            </div>""", unsafe_allow_html=True)
-        with h2:
-            if fc is not None:
-                _mL   = fc.months[-1]
-                _up   = fc.upside[_mL]
-                _upc  = GW_GREEN if _up > 0 else GW_RED
-                st.markdown(f"""
-                <div class="gw-card" style="padding:16px 18px;border:1.5px solid #5367FF33;height:100%;">
-                    <div style="font-size:0.68rem;color:#9CA3AF;letter-spacing:1px;">② FUTURE PRICE · {_mL} months</div>
-                    <div style="font-size:1.9rem;font-weight:800;color:{GW_NAVY};margin:4px 0;">
-                        ₹{fc.median[_mL]:,.0f}</div>
-                    <div style="font-size:0.82rem;color:#6B7280;">median ·
-                        <b style="color:{_upc};">{_up:+.1f}%</b></div>
-                    <div style="font-size:0.72rem;color:#9CA3AF;margin-top:4px;">
-                        50% range ₹{fc.p25[_mL]:,.0f}–{fc.p75[_mL]:,.0f}</div>
-                </div>""", unsafe_allow_html=True)
-            else:
-                st.markdown('<div class="gw-card" style="padding:16px 18px;height:100%;">Forecast unavailable</div>', unsafe_allow_html=True)
-        with h3:
-            st.markdown(f"""
-            <div class="gw-card" style="padding:16px 18px;border:1.5px solid {_acc_col}44;height:100%;">
-                <div style="font-size:0.68rem;color:#9CA3AF;letter-spacing:1px;">③ MODEL ACCURACY · backtested</div>
-                <div style="font-size:1.9rem;font-weight:800;color:{_acc_col};margin:4px 0;">
-                    {_acc:.1f}%</div>
-                <div style="font-size:0.82rem;color:#6B7280;">vs {_base_acc:.0f}% baseline ·
-                    <b style="color:{GW_GREEN if _acc>_base_acc else GW_RED};">{_acc-_base_acc:+.1f} pts</b></div>
-                <div style="font-size:0.72rem;color:#9CA3AF;margin-top:4px;">
-                    {out['n_test']} unseen days · direction hit-rate</div>
-            </div>""", unsafe_allow_html=True)
-
-        st.markdown(f'<div style="font-size:0.70rem;color:#9CA3AF;margin:10px 0 4px;">'
-                    f'① is walk-forward backtested; the context nudge (news/fundamentals/analysts) is a live read, '
-                    f'<b>not backtested</b>. ② is a Monte-Carlo range anchored to analyst targets — a distribution, not a promise.</div>',
-                    unsafe_allow_html=True)
-
-        # ── LONG-TERM PRICE FORECAST — chart + table ─────────────────────────
-        if fc is not None:
-            st.markdown('<div class="gw-section-title" style="margin-top:14px;font-size:0.9rem;">🔮 Long-Term Price Forecast '
-                        '<span style="font-size:0.7rem;color:#9CA3AF;font-weight:400;">Monte-Carlo · drift dampened & anchored to analyst target</span></div>',
+        # =====================================================================
+        # UNIVERSE RANKING VIEW
+        # =====================================================================
+        if mv_view.startswith("🌐"):
+            # model-quality + economic cards
+            _auc_col = GW_GREEN if _lo > 0.5 else GW_RED
+            _sh_col  = GW_GREEN if res.sharpe > 0.3 else ("#F59E0B" if res.sharpe > 0 else GW_RED)
+            _beat    = res.ann_return > res.bench_ann
+            m = st.columns(4)
+            for _c, (_l, _v, _s, _col) in zip(m, [
+                ("OOS ROC-AUC", f"{res.auc:.3f}", f"95% CI {_lo:.3f}–{_hi:.3f}", _auc_col),
+                ("Net Sharpe",  f"{res.sharpe:.2f}", f"p={res.sharpe_pvalue:.2f} vs random", _sh_col),
+                ("Strategy Ann. Return", f"{res.ann_return*100:+.1f}%", f"index {res.bench_ann*100:+.1f}%",
+                 GW_GREEN if _beat else GW_RED),
+                ("Max Drawdown", f"{res.max_dd*100:.0f}%", f"hit {res.hit_rate:.0f}% · {res.n_periods} periods", GW_NAVY),
+            ]):
+                with _c:
+                    st.markdown(f"""<div class="gw-stat-card">
+                        <div class="gw-stat-label">{_l}</div>
+                        <div class="gw-stat-value" style="color:{_col};">{_v}</div>
+                        <div class="gw-stat-sub" style="color:#6B7280;">{_s}</div></div>""",
                         unsafe_allow_html=True)
-            _hist = close.tail(120)
-            _hi   = [str(i.date()) if hasattr(i, "date") else str(i) for i in _hist.index]
-            _fdates = pd.bdate_range(start=close.index[-1], periods=len(fc.path_median))
-            _fi   = [str(d.date()) for d in _fdates]
-            fig_fc = go.Figure()
-            fig_fc.add_trace(go.Scatter(x=_hi, y=_hist.values, mode="lines",
-                             name="Historical", line=dict(color=GW_NAVY, width=2)))
-            fig_fc.add_trace(go.Scatter(x=_fi, y=fc.path_p95, mode="lines",
-                             name="95th pct", line=dict(color="rgba(83,103,255,0.15)", width=1)))
-            fig_fc.add_trace(go.Scatter(x=_fi, y=fc.path_p5, mode="lines", name="5th–95th",
-                             line=dict(color="rgba(83,103,255,0.15)", width=1),
-                             fill="tonexty", fillcolor="rgba(83,103,255,0.08)"))
-            fig_fc.add_trace(go.Scatter(x=_fi, y=fc.path_p75, mode="lines", name="75th pct",
-                             line=dict(color="rgba(0,208,156,0.20)", width=1), showlegend=False))
-            fig_fc.add_trace(go.Scatter(x=_fi, y=fc.path_p25, mode="lines", name="25th–75th",
-                             line=dict(color="rgba(0,208,156,0.20)", width=1),
-                             fill="tonexty", fillcolor="rgba(0,208,156,0.12)"))
-            fig_fc.add_trace(go.Scatter(x=_fi, y=fc.path_median, mode="lines", name="Median",
-                             line=dict(color=GW_PURPLE, width=3)))
-            if fc.analyst_target:
-                fig_fc.add_trace(go.Scatter(x=[_fi[-1]], y=[fc.analyst_target], mode="markers",
-                                 name="Analyst target", marker=dict(color="#F59E0B", size=10, symbol="star")))
-            _vline(fig_fc, close.index[-1])
-            groww_fig(fig_fc, 400, f"{mvr['company']} — {fc.months[-1]}-month projection "
-                      f"(drift {fc.drift_annual*100:+.0f}%/yr · vol {fc.vol_annual*100:.0f}%/yr)")
-            st.plotly_chart(fig_fc, use_container_width=True)
 
-            _fc_rows = []
-            for m in fc.months:
-                _fc_rows.append({
-                    "Horizon":      f"{m} month{'s' if m > 1 else ''}",
-                    "Expected (median)": f"₹{fc.median[m]:,.0f}",
-                    "Upside":       f"{fc.upside[m]:+.1f}%",
-                    "50% range":    f"₹{fc.p25[m]:,.0f} – {fc.p75[m]:,.0f}",
-                    "90% range":    f"₹{fc.p5[m]:,.0f} – {fc.p95[m]:,.0f}",
-                })
-            st.dataframe(pd.DataFrame(_fc_rows).set_index("Horizon"), use_container_width=True)
-            if fc.analyst_target:
-                st.caption(f"⭐ Analyst mean target (≈12-mo): ₹{fc.analyst_target:,.0f} "
-                           f"({(fc.analyst_target/fc.last_close-1)*100:+.1f}% vs last close) — used to anchor the drift.")
+            # backtest equity vs benchmark
+            st.markdown('<div class="gw-section-title" style="margin-top:18px;font-size:0.88rem;">📈 Long/Short Basket — Net of Costs vs Equal-Weight Index</div>', unsafe_allow_html=True)
+            eq, be = res.equity, res.bench_equity
+            xi = [str(d.date()) if hasattr(d, "date") else str(d) for d in eq.index]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=xi, y=be.values, mode="lines", name="Equal-weight index",
+                          line=dict(color=GW_NAVY, width=2, dash="dot")))
+            fig.add_trace(go.Scatter(x=xi, y=eq.values, mode="lines", name=f"{mv_ls} strategy (net)",
+                          line=dict(color=_vc, width=3)))
+            groww_fig(fig, 360, f"₹1 grown over {res.n_periods} out-of-sample {res.horizon}-day periods · {res.cost_bps:.0f} bps round-trip")
+            st.plotly_chart(fig, use_container_width=True)
 
-        # ── Evaluation metric cards (best model) ──────────────────────────────
-        _acc_color = GW_GREEN if best.accuracy >= 0.55 else ("#F59E0B" if best.accuracy >= 0.5 else GW_RED)
-        _edge      = best.accuracy * 100 - base["majority_acc"]
-        _edge_col  = GW_GREEN if _edge > 0 else GW_RED
-        m_cols = st.columns(4)
-        for _c, (_lbl, _val, _sub, _col) in zip(m_cols, [
-            ("Accuracy",  f"{best.accuracy*100:.1f}%",  f"vs {base['majority_acc']:.0f}% majority", _acc_color),
-            ("Precision", f"{best.precision*100:.1f}%", "of 'up' calls correct", GW_NAVY),
-            ("Recall",    f"{best.recall*100:.1f}%",    "of up-days caught", GW_NAVY),
-            ("F1-Score",  f"{best.f1*100:.1f}%",        f"edge {_edge:+.1f} pts", _edge_col),
-        ]):
-            with _c:
-                st.markdown(f"""
-                <div class="gw-stat-card">
-                    <div class="gw-stat-label">{_lbl}</div>
-                    <div class="gw-stat-value" style="color:{_col};">{_val}</div>
-                    <div class="gw-stat-sub" style="color:#9CA3AF;">{_sub}</div>
+            colL, colR = st.columns([1.5, 1])
+            # ranking leaderboard
+            with colL:
+                st.markdown('<div class="gw-section-title" style="font-size:0.86rem;">🏅 Today\'s Ranking '
+                            '<span style="font-size:0.7rem;color:#6B7280;font-weight:400;">calibrated P(up) · LONG = strongest, SHORT = weakest</span></div>', unsafe_allow_html=True)
+                rk = res.ranking.copy()
+                rk["P(up)"] = (rk["proba"] * 100).map(lambda v: f"{v:.1f}%")
+                rk["Signal"] = rk["bucket"].map({"LONG": "🟢 LONG", "SHORT": "🔴 SHORT", "Hold": "⚪ Hold"})
+                show = pd.concat([rk.head(8), rk[rk.bucket == "SHORT"].tail(5)])
+                show = show[["name", "P(up)", "Signal"]].rename(columns={"name": "Stock"})
+                st.dataframe(show.set_index("Stock"), use_container_width=True, height=460)
+            # feature importance + reliability
+            with colR:
+                st.markdown('<div class="gw-section-title" style="font-size:0.86rem;">🔧 Signal Drivers</div>', unsafe_allow_html=True)
+                fi = list((res.feat_importance or {}).items())[:8][::-1]
+                if fi:
+                    fig_fi = go.Figure(go.Bar(x=[v*100 for _, v in fi], y=[k for k, _ in fi],
+                              orientation="h", marker=dict(color=GW_GREEN)))
+                    groww_fig(fig_fi, 220, "Relative importance (%)")
+                    st.plotly_chart(fig_fi, use_container_width=True)
+                # reliability
+                st.markdown('<div style="font-size:0.74rem;color:#6B7280;margin-top:4px;">Calibration (reliability)</div>', unsafe_allow_html=True)
+                rel = res.reliability
+                fig_rel = go.Figure()
+                fig_rel.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines",
+                          line=dict(color="#6B7280", dash="dash", width=1), showlegend=False))
+                if rel.get("pred"):
+                    fig_rel.add_trace(go.Scatter(x=rel["pred"], y=rel["obs"], mode="lines+markers",
+                              line=dict(color=GW_GREEN, width=2), showlegend=False))
+                groww_fig(fig_rel, 190, f"Brier {res.brier:.3f} · predicted vs observed")
+                st.plotly_chart(fig_rel, use_container_width=True)
+
+            st.caption("Honest read: with free price/volume/earnings/market data the directional edge is tiny and "
+                       "regime-dependent. Treat this as a research/validation tool — the verdict tells you whether "
+                       "the signal is tradeable *today*, net of costs. It is not investment advice.")
+
+        # =====================================================================
+        # SINGLE-STOCK DEEP-DIVE VIEW
+        # =====================================================================
+        else:
+            _names = list(NIFTY_50.keys())
+            pick = st.selectbox("Stock", _names, index=_names.index("Reliance Industries"))
+            tk = NIFTY_50[pick]
+            row = res.ranking[res.ranking.ticker == tk]
+            ps  = res.per_stock.get(tk)
+
+            _proba = float(row["proba"].iloc[0]) if len(row) else 0.5
+            _bucket = row["bucket"].iloc[0] if len(row) else "Hold"
+            _sig = "UP" if _proba >= 0.5 else "DOWN"
+            _sig_c = GW_GREEN if _sig == "UP" else GW_RED
+            _last = float(row["last_close"].iloc[0]) if len(row) else 0.0
+
+            # forecast + context (cached per stock)
+            _sc = st.session_state.get("mv_stock_cache") or {}
+            if tk not in _sc:
+                with st.spinner(f"Long-term forecast & live context for {pick}…"):
+                    _ohlcv = fetch_ohlcv(tk, period="6y")
+                    _ctx = fundamental_context(tk)
+                    _has = _ohlcv is not None and not _ohlcv.empty
+                    _fc  = forecast_price(_ohlcv["Close"], analyst_target=(_ctx.get("analyst") or {}).get("target_mean")) if _has else None
+                    _start = _ohlcv.index[-1] if _has else pd.Timestamp.today()
+                    _sc[tk] = {"ctx": _ctx, "fc": _fc, "start": _start}
+                    st.session_state.mv_stock_cache = _sc
+            ctx = _sc[tk]["ctx"]; fc = _sc[tk]["fc"]; _fc_start = _sc[tk]["start"]
+
+            h1, h2, h3 = st.columns(3)
+            with h1:
+                st.markdown(f"""<div class="gw-card" style="padding:18px 20px;border:1.5px solid {_sig_c}66;
+                     background:radial-gradient(320px 120px at 20% 0%,{_sig_c}1F,transparent 70%),#FFFFFF;
+                     box-shadow:0 0 26px {_sig_c}22;height:100%;">
+                    <div style="font-size:0.68rem;color:#6B7280;letter-spacing:1px;">① {res.horizon}-DAY DIRECTION · pooled model</div>
+                    <div style="font-size:2.2rem;font-weight:800;color:{_sig_c};text-shadow:0 0 16px {_sig_c}55;margin:2px 0;">
+                        {'▲' if _sig=='UP' else '▼'} {_sig}</div>
+                    <div style="font-size:0.82rem;color:#6B7280;">calibrated P(up)
+                        <b style="color:{_sig_c};">{_proba*100:.1f}%</b> · rank <b>{_bucket}</b></div>
+                </div>""", unsafe_allow_html=True)
+            with h2:
+                if fc is not None:
+                    _mL = fc.months[-1]; _up = fc.upside[_mL]
+                    _uc = GW_GREEN if _up > 0 else GW_RED
+                    st.markdown(f"""<div class="gw-card" style="padding:18px 20px;border:1.5px solid {GW_PURPLE}55;
+                         box-shadow:0 0 22px {GW_PURPLE}1F;height:100%;">
+                        <div style="font-size:0.68rem;color:#6B7280;letter-spacing:1px;">② FUTURE PRICE · {_mL} months</div>
+                        <div style="font-size:2.2rem;font-weight:800;color:{GW_NAVY};margin:2px 0;">₹{fc.median[_mL]:,.0f}</div>
+                        <div style="font-size:0.82rem;color:#6B7280;">median · <b style="color:{_uc};">{_up:+.1f}%</b>
+                            · range ₹{fc.p25[_mL]:,.0f}–{fc.p75[_mL]:,.0f}</div>
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown('<div class="gw-card" style="height:100%;">Forecast unavailable</div>', unsafe_allow_html=True)
+            with h3:
+                _pauc = ps["auc"] if ps else 0.5
+                _pc = GW_GREEN if _pauc > 0.53 else ("#F59E0B" if _pauc > 0.5 else GW_RED)
+                st.markdown(f"""<div class="gw-card" style="padding:18px 20px;border:1.5px solid {_pc}55;
+                     box-shadow:0 0 22px {_pc}1F;height:100%;">
+                    <div style="font-size:0.68rem;color:#6B7280;letter-spacing:1px;">③ THIS STOCK · out-of-sample</div>
+                    <div style="font-size:2.2rem;font-weight:800;color:{_pc};margin:2px 0;">
+                        {_pauc:.3f}</div>
+                    <div style="font-size:0.82rem;color:#6B7280;">ROC-AUC · hit {ps['hit']:.0f}%
+                        · {ps['n'] if ps else 0} OOS preds</div>
                 </div>""", unsafe_allow_html=True)
 
-        # ── Live context panel (news · fundamentals · analysts · earnings) ────
-        st.markdown('<div class="gw-section-title" style="margin-top:22px;">🌐 Live Context '
-                    '<span style="font-size:0.7rem;color:#9CA3AF;font-weight:400;">news · Screener.in fundamentals · analysts · earnings — a real-time read, not backtested</span></div>',
-                    unsafe_allow_html=True)
-        _news = ctx.get("news", {}) or {}
-        _scr  = ctx.get("screener", {}) or {}
-        _anal = ctx.get("analyst", {}) or {}
-        _earn = ctx.get("earnings", {}) or {}
-        _contrib = ctx.get("contrib", {}) or {}
+            st.markdown(f'<div style="font-size:0.72rem;color:#6B7280;margin:10px 0 2px;">'
+                        f'Last close ₹{_last:,.2f} · signal from the pooled Nifty-50 model (verdict <b style="color:{_vc};">{res.verdict}</b> universe-wide). '
+                        f'② is a Monte-Carlo range anchored to analyst targets. Per-stock edge is weaker than the pooled model — use the ranking, not one name in isolation.</div>',
+                        unsafe_allow_html=True)
 
-        cc1, cc2, cc3 = st.columns(3)
-        # 1) Context bias breakdown
-        with cc1:
-            _rows = "".join(
-                f'<div style="display:flex;justify-content:space-between;font-size:0.78rem;'
-                f'padding:2px 0;"><span style="color:#6B7280;">{k}</span>'
-                f'<b style="color:{GW_GREEN if v>0.05 else GW_RED if v<-0.05 else "#9CA3AF"};">{v:+.2f}</b></div>'
-                for k, v in sorted(_contrib.items(), key=lambda x: -abs(x[1]))
-            ) or '<div style="color:#9CA3AF;font-size:0.8rem;">No context signals available.</div>'
-            st.markdown(f"""
-            <div class="gw-card" style="padding:14px 16px;height:100%;">
-                <div style="font-size:0.72rem;color:#9CA3AF;letter-spacing:0.05em;margin-bottom:8px;">
-                    CONTEXT BIAS &nbsp;·&nbsp; <b style="color:{_ctx_color};">{_ctx_label} ({_bias:+.2f})</b></div>
-                {_rows}
-            </div>""", unsafe_allow_html=True)
-        # 2) Fundamentals (Screener) + analyst
-        with cc2:
-            def _fmt(v, suf=""):
-                return f"{v:g}{suf}" if isinstance(v, (int, float)) else "—"
-            _reco = _anal.get("recommendation") or "—"
-            _up   = _anal.get("target_upside")
-            _up_s = (f'<span style="color:{GW_GREEN if _up>0 else GW_RED};">{_up:+.1f}%</span>'
-                     if _up is not None else "—")
-            st.markdown(f"""
-            <div class="gw-card" style="padding:14px 16px;height:100%;">
-                <div style="font-size:0.72rem;color:#9CA3AF;letter-spacing:0.05em;margin-bottom:8px;">FUNDAMENTALS · ANALYSTS</div>
-                <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:2px 0;"><span style="color:#6B7280;">Stock P/E</span><b>{_fmt(_scr.get('pe'))}</b></div>
-                <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:2px 0;"><span style="color:#6B7280;">ROCE / ROE</span><b>{_fmt(_scr.get('roce'),'%')} / {_fmt(_scr.get('roe'),'%')}</b></div>
-                <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:2px 0;"><span style="color:#6B7280;">Div. yield</span><b>{_fmt(_scr.get('div_yield'),'%')}</b></div>
-                <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:2px 0;"><span style="color:#6B7280;">Analyst view</span><b>{_reco}</b></div>
-                <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:2px 0;"><span style="color:#6B7280;">Target upside</span><b>{_up_s}</b></div>
-            </div>""", unsafe_allow_html=True)
-        # 3) Earnings cycle
-        with cc3:
-            _dt  = _earn.get("days_to")
-            _ds  = _earn.get("days_since")
-            _ls  = _earn.get("last_surprise")
-            _nd  = _earn.get("next_date")
-            _nd_s = _nd.strftime("%d %b %Y") if hasattr(_nd, "strftime") else "—"
-            _ls_s = (f'<span style="color:{GW_GREEN if _ls>0 else GW_RED};">{_ls:+.1f}%</span>'
-                     if _ls is not None else "—")
-            _warn = ('<div style="color:#F59E0B;font-size:0.74rem;margin-top:6px;">⚠️ Earnings within 5 days — expect elevated volatility.</div>'
-                     if isinstance(_dt, int) and _dt <= 5 else "")
-            st.markdown(f"""
-            <div class="gw-card" style="padding:14px 16px;height:100%;">
-                <div style="font-size:0.72rem;color:#9CA3AF;letter-spacing:0.05em;margin-bottom:8px;">EARNINGS CYCLE</div>
-                <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:2px 0;"><span style="color:#6B7280;">Next report</span><b>{_nd_s}</b></div>
-                <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:2px 0;"><span style="color:#6B7280;">Days to / since</span><b>{_dt if _dt is not None else '—'} / {_ds if _ds is not None else '—'}</b></div>
-                <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:2px 0;"><span style="color:#6B7280;">Last EPS surprise</span><b>{_ls_s}</b></div>
-                {_warn}
-            </div>""", unsafe_allow_html=True)
+            # long-term forecast chart
+            if fc is not None:
+                st.markdown('<div class="gw-section-title" style="margin-top:14px;font-size:0.86rem;">🔮 Long-Term Price Forecast (1–4 mo)</div>', unsafe_allow_html=True)
+                _fd = pd.bdate_range(start=_fc_start, periods=len(fc.path_median))
+                _fi = [str(d.date()) for d in _fd]
+                figf = go.Figure()
+                figf.add_trace(go.Scatter(x=_fi, y=fc.path_p95, mode="lines", name="95th",
+                          line=dict(color="rgba(56,126,209,0.15)", width=1), showlegend=False))
+                figf.add_trace(go.Scatter(x=_fi, y=fc.path_p5, mode="lines", name="5th–95th",
+                          line=dict(color="rgba(56,126,209,0.15)", width=1), fill="tonexty",
+                          fillcolor="rgba(56,126,209,0.10)"))
+                figf.add_trace(go.Scatter(x=_fi, y=fc.path_p75, mode="lines",
+                          line=dict(color="rgba(76,166,76,0.2)", width=1), showlegend=False))
+                figf.add_trace(go.Scatter(x=_fi, y=fc.path_p25, mode="lines", name="25th–75th",
+                          line=dict(color="rgba(76,166,76,0.2)", width=1), fill="tonexty",
+                          fillcolor="rgba(76,166,76,0.12)"))
+                figf.add_trace(go.Scatter(x=_fi, y=fc.path_median, mode="lines", name="Median",
+                          line=dict(color=GW_GREEN, width=3)))
+                if fc.analyst_target:
+                    figf.add_trace(go.Scatter(x=[_fi[-1]], y=[fc.analyst_target], mode="markers",
+                              name="Analyst target", marker=dict(color="#F59E0B", size=10, symbol="star")))
+                groww_fig(figf, 340, f"{pick} — {fc.months[-1]}-month projection")
+                st.plotly_chart(figf, use_container_width=True)
+                _rows = [{"Horizon": f"{mm} mo", "Median": f"₹{fc.median[mm]:,.0f}",
+                          "Upside": f"{fc.upside[mm]:+.1f}%",
+                          "50% range": f"₹{fc.p25[mm]:,.0f}–{fc.p75[mm]:,.0f}"} for mm in fc.months]
+                st.dataframe(pd.DataFrame(_rows).set_index("Horizon"), use_container_width=True)
 
-        # News headlines
-        if _news.get("items"):
-            with st.expander(f"📰 Recent news for {mvr['company']} — sentiment {_news.get('label','')} "
-                             f"({_news.get('score',0):+.2f})", expanded=False):
-                for it in _news["items"][:8]:
-                    st.markdown(
-                        f'<div style="padding:6px 0;border-bottom:1px solid #F3F4F6;">'
-                        f'<span style="background:{it["color"]}22;color:{it["color"]};font-size:0.66rem;'
-                        f'font-weight:700;padding:2px 7px;border-radius:6px;">{it["polarity"]:+.2f}</span>'
-                        f'<span style="font-size:0.85rem;color:#1B2236;margin-left:8px;">{it["title"]}</span>'
-                        f'<span style="font-size:0.72rem;color:#9CA3AF;margin-left:8px;">· {it["source"]} {it["time"]}</span>'
-                        f'</div>', unsafe_allow_html=True)
-
-        # ── Backtest equity curve: strategy vs buy & hold ─────────────────────
-        st.markdown('<div class="gw-section-title" style="margin-top:20px;font-size:0.86rem;">📈 Strategy Backtest — Signal vs Baselines <span style="font-size:0.7rem;color:#9CA3AF;font-weight:400;">(₹1 grown over the held-out test window)</span></div>', unsafe_allow_html=True)
-        fig_eq = go.Figure()
-        bh_eq  = base["buyhold_equity"]
-        bh_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in bh_eq.index]
-        fig_eq.add_trace(go.Scatter(
-            x=bh_idx, y=bh_eq.values, mode="lines", name="Buy & Hold",
-            line=dict(color=GW_NAVY, width=2, dash="dot")))
-        for mname, res in results.items():
-            if res.error or res.equity.empty:
-                continue
-            eq_idx = [str(i.date()) if hasattr(i, "date") else str(i) for i in res.equity.index]
-            fig_eq.add_trace(go.Scatter(
-                x=eq_idx, y=res.equity.values, mode="lines",
-                name=f"{'🏆 ' if mname == best_name else ''}{mname}",
-                line=dict(color=MV_COLORS.get(mname, "#9CA3AF"),
-                          width=3 if mname == best_name else 1.5)))
-        groww_fig(fig_eq, 380, f"{mvr['company']} — strategy equity vs buy & hold")
-        st.plotly_chart(fig_eq, use_container_width=True)
-
-        _bh_col = GW_GREEN if base["buyhold_return"] >= 0 else GW_RED
-        _st_col = GW_GREEN if best.strat_return >= base["buyhold_return"] else GW_RED
-        st.markdown(
-            f'<div style="color:#6B7280;font-size:0.82rem;margin:-4px 0 10px;">'
-            f'Best strategy return <b style="color:{_st_col};">{best.strat_return*100:+.1f}%</b> '
-            f'&nbsp;·&nbsp; buy &amp; hold <b style="color:{_bh_col};">{base["buyhold_return"]*100:+.1f}%</b> '
-            f'&nbsp;·&nbsp; win rate <b>{best.win_rate:.0f}%</b> '
-            f'&nbsp;·&nbsp; strategy Sharpe <b>{best.strat_sharpe:.2f}</b> '
-            f'&nbsp;·&nbsp; random-guess accuracy ≈ <b>{base["random_acc"]:.0f}%</b></div>',
-            unsafe_allow_html=True)
-
-        # ── Model leaderboard ─────────────────────────────────────────────────
-        st.markdown('<div class="gw-section-title" style="margin-top:16px;">🏆 Classifier Leaderboard &nbsp;<span style="font-size:0.7rem;color:#9CA3AF;font-weight:400;">ranked by F1 · 🏆 = best</span></div>', unsafe_allow_html=True)
-        lb_rows = []
-        for mname, res in results.items():
-            if res.error:
-                lb_rows.append({"_f1": -1, "Model": f"⚠️ {mname}", "Accuracy": "—",
-                                "Precision": "—", "Recall": "—", "F1": "—",
-                                "Next Day": "—", "Pred. Close": "—",
-                                "Strategy Return": res.error[:40]})
-                continue
-            lb_rows.append({
-                "_f1":       res.f1,
-                "Model":     ("🏆 " if mname == best_name else "") + mname,
-                "Accuracy":  f"{res.accuracy*100:.1f}%",
-                "Precision": f"{res.precision*100:.1f}%",
-                "Recall":    f"{res.recall*100:.1f}%",
-                "F1":        f"{res.f1*100:.1f}%",
-                "Next Day":  f"{'▲' if res.next_signal=='UP' else '▼'} {res.next_signal} "
-                             f"({(res.next_up_prob if res.next_signal=='UP' else 1-res.next_up_prob)*100:.0f}%)",
-                "Pred. Close": f"₹{res.next_price:,.2f} ({res.next_exp_return*100:+.2f}%)",
-                "Strategy Return": f"{res.strat_return*100:+.1f}%",
-            })
-        lb_rows.sort(key=lambda r: r["_f1"], reverse=True)
-        for r in lb_rows:
-            r.pop("_f1", None)
-        st.dataframe(pd.DataFrame(lb_rows).set_index("Model"), use_container_width=True)
-
-        # ── Feature importance + confusion matrix ─────────────────────────────
-        fi_col, cm_col = st.columns([1.4, 1])
-        with fi_col:
-            st.markdown('<div class="gw-section-title" style="font-size:0.82rem;">🔧 What drives the call <span style="font-size:0.7rem;color:#9CA3AF;font-weight:400;">(top features · best model)</span></div>', unsafe_allow_html=True)
-            fi = best.feat_importance or {}
-            if fi:
-                items = list(fi.items())[:8][::-1]
-                fig_fi = go.Figure(go.Bar(
-                    x=[v*100 for _, v in items], y=[k for k, _ in items],
-                    orientation="h",
-                    marker=dict(color=MV_COLORS.get(best_name, GW_PURPLE))))
-                groww_fig(fig_fi, 300, "Relative importance (%)")
-                st.plotly_chart(fig_fi, use_container_width=True)
-            else:
-                st.caption("Feature importance unavailable for this model.")
-        with cm_col:
-            st.markdown('<div class="gw-section-title" style="font-size:0.82rem;">🎛️ Confusion Matrix <span style="font-size:0.7rem;color:#9CA3AF;font-weight:400;">(test window)</span></div>', unsafe_allow_html=True)
-            cm = best.confusion
-            fig_cm = go.Figure(go.Heatmap(
-                z=cm, x=["Pred Down", "Pred Up"], y=["Actual Down", "Actual Up"],
-                text=cm, texttemplate="%{text}", textfont=dict(size=16),
-                colorscale=[[0, "#EEF2FF"], [1, MV_COLORS.get(best_name, GW_PURPLE)]],
-                showscale=False))
-            groww_fig(fig_cm, 300, f"{best_name} · acc {best.accuracy*100:.0f}%")
-            st.plotly_chart(fig_cm, use_container_width=True)
-
-        # ── Monte Carlo simulation of the stock (hero) ────────────────────────
-        with st.expander("🎲 Monte Carlo simulation of this stock (100 paths · GBM)", expanded=False):
-            mc = monte_carlo_paths(close, n_paths=100, n_steps=100)
-            fig_mc = go.Figure()
-            _pal = ["#5367FF", "#00D09C", "#F59E0B", "#8B5CF6", "#06B6D4",
-                    "#EC4899", "#10B981", "#F97316", "#EF4444", "#6366F1"]
-            for j in range(mc.shape[1]):
-                fig_mc.add_trace(go.Scatter(
-                    y=mc[:, j], mode="lines", showlegend=False,
-                    line=dict(color=_pal[j % len(_pal)], width=0.7), opacity=0.5,
-                    hoverinfo="skip"))
-            fig_mc.add_trace(go.Scatter(
-                y=mc.mean(axis=1), mode="lines", name="Mean path",
-                line=dict(color=GW_NAVY, width=2.5)))
-            groww_fig(fig_mc, 420,
-                      f"{mvr['company']} — 100 simulated paths over 100 trading days "
-                      f"(start ₹{float(close.iloc[-1]):,.0f})")
-            fig_mc.update_xaxes(title_text="Trading days ahead")
-            fig_mc.update_yaxes(title_text="Simulated price")
-            st.plotly_chart(fig_mc, use_container_width=True)
-            _terminal = mc[-1]
-            st.caption(
-                f"Across 100 GBM paths calibrated to {mvr['company']}'s own drift & volatility: "
-                f"median ₹{np.median(_terminal):,.0f} · "
-                f"5th–95th pct ₹{np.percentile(_terminal,5):,.0f}–₹{np.percentile(_terminal,95):,.0f} "
-                f"after 100 trading days.")
+            # live context
+            _ctx_bias = float(ctx.get("bias", 0.0))
+            _ctx_l = ctx.get("label", "Neutral")
+            _ctx_c = GW_GREEN if _ctx_bias > 0.15 else GW_RED if _ctx_bias < -0.15 else "#F59E0B"
+            _an = ctx.get("analyst", {}) or {}; _scr = ctx.get("screener", {}) or {}; _ne = ctx.get("news", {}) or {}
+            st.markdown(f'<div class="gw-section-title" style="margin-top:12px;font-size:0.86rem;">🌐 Live Context '
+                        f'<span style="font-size:0.7rem;color:#6B7280;font-weight:400;">not backtested — {_ctx_l} ({_ctx_bias:+.2f})</span></div>', unsafe_allow_html=True)
+            cA, cB, cC = st.columns(3)
+            def _g(v, s=""):
+                return f"{v:g}{s}" if isinstance(v, (int, float)) else "—"
+            _up = _an.get("target_upside")
+            cA.markdown(f"""<div class="gw-card"><div class="gw-stat-label">FUNDAMENTALS</div>
+                <div style="font-size:0.82rem;color:#4B5563;margin-top:6px;">P/E {_g(_scr.get('pe'))} · ROCE {_g(_scr.get('roce'),'%')} · ROE {_g(_scr.get('roe'),'%')}</div></div>""", unsafe_allow_html=True)
+            cB.markdown(f"""<div class="gw-card"><div class="gw-stat-label">ANALYSTS</div>
+                <div style="font-size:0.82rem;color:#4B5563;margin-top:6px;">{_an.get('recommendation') or '—'} · target upside {f'{_up:+.1f}%' if _up is not None else '—'}</div></div>""", unsafe_allow_html=True)
+            cC.markdown(f"""<div class="gw-card"><div class="gw-stat-label">NEWS SENTIMENT</div>
+                <div style="font-size:0.82rem;color:#4B5563;margin-top:6px;">{_ne.get('label','—')} ({_ne.get('score',0):+.2f}) · {_ne.get('n',0)} headlines</div></div>""", unsafe_allow_html=True)
     else:
         st.markdown("""
         <div class="gw-card" style="text-align:center;padding:32px;">
             <div style="font-size:2rem;margin-bottom:8px;">🎯</div>
-            <div style="font-weight:600;color:#1B2236;">Pick a Nifty-50 stock above, then click Run Predictor</div>
-            <div style="color:#9CA3AF;font-size:0.82rem;margin-top:6px;">
-                Trains on price, earnings-cycle & market-regime features to call tomorrow's direction,
-                backtests it against buy&amp;hold and a random guess, then overlays a live read of
-                news, Screener.in fundamentals & analyst views.
+            <div style="font-weight:700;color:#3C3C3C;">Set the horizon & costs, then Run Model</div>
+            <div style="color:#6B7280;font-size:0.82rem;margin-top:6px;">
+                Trains one pooled model across the whole Nifty-50, walk-forward validates it, backtests a
+                cost-aware long/short basket, and gives an honest deploy verdict (~60–90s, then cached).
             </div>
         </div>
         """, unsafe_allow_html=True)
