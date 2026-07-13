@@ -907,9 +907,7 @@ if active == "Predict":
         unsafe_allow_html=True)
 
     # ── Controls ──────────────────────────────────────────────────────────────
-    cv, ch, cs, ct, cc, cr = st.columns([1.7, 1, 1.2, 1.1, 1.1, 1.1])
-    with cv:
-        mv_view = st.radio("View", ["🌐 Universe Ranking", "🔎 Single Stock"], horizontal=True)
+    ch, cs, ct, cc, cr = st.columns([1, 1.2, 1.1, 1.1, 1.2])
     with ch:
         mv_h = st.selectbox("Horizon (days)", [5, 10, 20], index=1)
     with cs:
@@ -965,192 +963,118 @@ if active == "Predict":
         </div>
         """, unsafe_allow_html=True)
 
-        # =====================================================================
-        # UNIVERSE RANKING VIEW
-        # =====================================================================
-        if mv_view.startswith("🌐"):
-            # model-quality + economic cards
-            _auc_col = GW_GREEN if _lo > 0.5 else GW_RED
-            _sh_col  = GW_GREEN if res.sharpe > 0.3 else ("#F59E0B" if res.sharpe > 0 else GW_RED)
-            _beat    = res.ann_return > res.bench_ann
-            m = st.columns(4)
-            for _c, (_l, _v, _s, _col) in zip(m, [
-                ("OOS ROC-AUC", f"{res.auc:.3f}", f"95% CI {_lo:.3f}–{_hi:.3f}", _auc_col),
-                ("Net Sharpe",  f"{res.sharpe:.2f}", f"p={res.sharpe_pvalue:.2f} vs random", _sh_col),
-                ("Strategy Ann. Return", f"{res.ann_return*100:+.1f}%", f"index {res.bench_ann*100:+.1f}%",
-                 GW_GREEN if _beat else GW_RED),
-                ("Max Drawdown", f"{res.max_dd*100:.0f}%", f"hit {res.hit_rate:.0f}% · {res.n_periods} periods", GW_NAVY),
-            ]):
-                with _c:
-                    st.markdown(f"""<div class="gw-stat-card">
-                        <div class="gw-stat-label">{_l}</div>
-                        <div class="gw-stat-value" style="color:{_col};">{_v}</div>
-                        <div class="gw-stat-sub" style="color:#6B7280;">{_s}</div></div>""",
-                        unsafe_allow_html=True)
+        # ── Single-stock deep-dive — scored by the pooled Nifty-50 model ──
+        _names = list(NIFTY_50.keys())
+        pick = st.selectbox("Stock", _names, index=_names.index("Reliance Industries"))
+        tk = NIFTY_50[pick]
+        row = res.ranking[res.ranking.ticker == tk]
+        ps  = res.per_stock.get(tk)
 
-            # backtest equity vs benchmark
-            st.markdown('<div class="gw-section-title" style="margin-top:18px;font-size:0.88rem;">📈 Long/Short Basket — Net of Costs vs Equal-Weight Index</div>', unsafe_allow_html=True)
-            eq, be = res.equity, res.bench_equity
-            xi = [str(d.date()) if hasattr(d, "date") else str(d) for d in eq.index]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=xi, y=be.values, mode="lines", name="Equal-weight index",
-                          line=dict(color=GW_NAVY, width=2, dash="dot")))
-            fig.add_trace(go.Scatter(x=xi, y=eq.values, mode="lines", name=f"{mv_ls} strategy (net)",
-                          line=dict(color=_vc, width=3)))
-            groww_fig(fig, 360, f"₹1 grown over {res.n_periods} out-of-sample {res.horizon}-day periods · {res.cost_bps:.0f} bps round-trip")
-            st.plotly_chart(fig, use_container_width=True)
+        _proba = float(row["proba"].iloc[0]) if len(row) else 0.5
+        _bucket = row["bucket"].iloc[0] if len(row) else "Hold"
+        _sig = "UP" if _proba >= 0.5 else "DOWN"
+        _sig_c = GW_GREEN if _sig == "UP" else GW_RED
+        _last = float(row["last_close"].iloc[0]) if len(row) else 0.0
 
-            colL, colR = st.columns([1.5, 1])
-            # ranking leaderboard
-            with colL:
-                st.markdown('<div class="gw-section-title" style="font-size:0.86rem;">🏅 Today\'s Ranking '
-                            '<span style="font-size:0.7rem;color:#6B7280;font-weight:400;">calibrated P(up) · LONG = strongest, SHORT = weakest</span></div>', unsafe_allow_html=True)
-                rk = res.ranking.copy()
-                rk["P(up)"] = (rk["proba"] * 100).map(lambda v: f"{v:.1f}%")
-                rk["Signal"] = rk["bucket"].map({"LONG": "🟢 LONG", "SHORT": "🔴 SHORT", "Hold": "⚪ Hold"})
-                show = pd.concat([rk.head(8), rk[rk.bucket == "SHORT"].tail(5)])
-                show = show[["name", "P(up)", "Signal"]].rename(columns={"name": "Stock"})
-                st.dataframe(show.set_index("Stock"), use_container_width=True, height=460)
-            # feature importance + reliability
-            with colR:
-                st.markdown('<div class="gw-section-title" style="font-size:0.86rem;">🔧 Signal Drivers</div>', unsafe_allow_html=True)
-                fi = list((res.feat_importance or {}).items())[:8][::-1]
-                if fi:
-                    fig_fi = go.Figure(go.Bar(x=[v*100 for _, v in fi], y=[k for k, _ in fi],
-                              orientation="h", marker=dict(color=GW_GREEN)))
-                    groww_fig(fig_fi, 220, "Relative importance (%)")
-                    st.plotly_chart(fig_fi, use_container_width=True)
-                # reliability
-                st.markdown('<div style="font-size:0.74rem;color:#6B7280;margin-top:4px;">Calibration (reliability)</div>', unsafe_allow_html=True)
-                rel = res.reliability
-                fig_rel = go.Figure()
-                fig_rel.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines",
-                          line=dict(color="#6B7280", dash="dash", width=1), showlegend=False))
-                if rel.get("pred"):
-                    fig_rel.add_trace(go.Scatter(x=rel["pred"], y=rel["obs"], mode="lines+markers",
-                              line=dict(color=GW_GREEN, width=2), showlegend=False))
-                groww_fig(fig_rel, 190, f"Brier {res.brier:.3f} · predicted vs observed")
-                st.plotly_chart(fig_rel, use_container_width=True)
+        # forecast + context (cached per stock)
+        _sc = st.session_state.get("mv_stock_cache") or {}
+        if tk not in _sc:
+            with st.spinner(f"Long-term forecast & live context for {pick}…"):
+                _ohlcv = fetch_ohlcv(tk, period="6y")
+                _ctx = fundamental_context(tk)
+                _has = _ohlcv is not None and not _ohlcv.empty
+                _fc  = forecast_price(_ohlcv["Close"], analyst_target=(_ctx.get("analyst") or {}).get("target_mean")) if _has else None
+                _start = _ohlcv.index[-1] if _has else pd.Timestamp.today()
+                _sc[tk] = {"ctx": _ctx, "fc": _fc, "start": _start}
+                st.session_state.mv_stock_cache = _sc
+        ctx = _sc[tk]["ctx"]; fc = _sc[tk]["fc"]; _fc_start = _sc[tk]["start"]
 
-            st.caption("Honest read: with free price/volume/earnings/market data the directional edge is tiny and "
-                       "regime-dependent. Treat this as a research/validation tool — the verdict tells you whether "
-                       "the signal is tradeable *today*, net of costs. It is not investment advice.")
-
-        # =====================================================================
-        # SINGLE-STOCK DEEP-DIVE VIEW
-        # =====================================================================
-        else:
-            _names = list(NIFTY_50.keys())
-            pick = st.selectbox("Stock", _names, index=_names.index("Reliance Industries"))
-            tk = NIFTY_50[pick]
-            row = res.ranking[res.ranking.ticker == tk]
-            ps  = res.per_stock.get(tk)
-
-            _proba = float(row["proba"].iloc[0]) if len(row) else 0.5
-            _bucket = row["bucket"].iloc[0] if len(row) else "Hold"
-            _sig = "UP" if _proba >= 0.5 else "DOWN"
-            _sig_c = GW_GREEN if _sig == "UP" else GW_RED
-            _last = float(row["last_close"].iloc[0]) if len(row) else 0.0
-
-            # forecast + context (cached per stock)
-            _sc = st.session_state.get("mv_stock_cache") or {}
-            if tk not in _sc:
-                with st.spinner(f"Long-term forecast & live context for {pick}…"):
-                    _ohlcv = fetch_ohlcv(tk, period="6y")
-                    _ctx = fundamental_context(tk)
-                    _has = _ohlcv is not None and not _ohlcv.empty
-                    _fc  = forecast_price(_ohlcv["Close"], analyst_target=(_ctx.get("analyst") or {}).get("target_mean")) if _has else None
-                    _start = _ohlcv.index[-1] if _has else pd.Timestamp.today()
-                    _sc[tk] = {"ctx": _ctx, "fc": _fc, "start": _start}
-                    st.session_state.mv_stock_cache = _sc
-            ctx = _sc[tk]["ctx"]; fc = _sc[tk]["fc"]; _fc_start = _sc[tk]["start"]
-
-            h1, h2, h3 = st.columns(3)
-            with h1:
-                st.markdown(f"""<div class="gw-card" style="padding:18px 20px;border:1.5px solid {_sig_c}66;
-                     background:radial-gradient(320px 120px at 20% 0%,{_sig_c}1F,transparent 70%),#FFFFFF;
-                     box-shadow:0 0 26px {_sig_c}22;height:100%;">
-                    <div style="font-size:0.68rem;color:#6B7280;letter-spacing:1px;">① {res.horizon}-DAY DIRECTION · pooled model</div>
-                    <div style="font-size:2.2rem;font-weight:800;color:{_sig_c};text-shadow:0 0 16px {_sig_c}55;margin:2px 0;">
-                        {'▲' if _sig=='UP' else '▼'} {_sig}</div>
-                    <div style="font-size:0.82rem;color:#6B7280;">calibrated P(up)
-                        <b style="color:{_sig_c};">{_proba*100:.1f}%</b> · rank <b>{_bucket}</b></div>
-                </div>""", unsafe_allow_html=True)
-            with h2:
-                if fc is not None:
-                    _mL = fc.months[-1]; _up = fc.upside[_mL]
-                    _uc = GW_GREEN if _up > 0 else GW_RED
-                    st.markdown(f"""<div class="gw-card" style="padding:18px 20px;border:1.5px solid {GW_PURPLE}55;
-                         box-shadow:0 0 22px {GW_PURPLE}1F;height:100%;">
-                        <div style="font-size:0.68rem;color:#6B7280;letter-spacing:1px;">② FUTURE PRICE · {_mL} months</div>
-                        <div style="font-size:2.2rem;font-weight:800;color:{GW_NAVY};margin:2px 0;">₹{fc.median[_mL]:,.0f}</div>
-                        <div style="font-size:0.82rem;color:#6B7280;">median · <b style="color:{_uc};">{_up:+.1f}%</b>
-                            · range ₹{fc.p25[_mL]:,.0f}–{fc.p75[_mL]:,.0f}</div>
-                    </div>""", unsafe_allow_html=True)
-                else:
-                    st.markdown('<div class="gw-card" style="height:100%;">Forecast unavailable</div>', unsafe_allow_html=True)
-            with h3:
-                _pauc = ps["auc"] if ps else 0.5
-                _pc = GW_GREEN if _pauc > 0.53 else ("#F59E0B" if _pauc > 0.5 else GW_RED)
-                st.markdown(f"""<div class="gw-card" style="padding:18px 20px;border:1.5px solid {_pc}55;
-                     box-shadow:0 0 22px {_pc}1F;height:100%;">
-                    <div style="font-size:0.68rem;color:#6B7280;letter-spacing:1px;">③ THIS STOCK · out-of-sample</div>
-                    <div style="font-size:2.2rem;font-weight:800;color:{_pc};margin:2px 0;">
-                        {_pauc:.3f}</div>
-                    <div style="font-size:0.82rem;color:#6B7280;">ROC-AUC · hit {ps['hit']:.0f}%
-                        · {ps['n'] if ps else 0} OOS preds</div>
-                </div>""", unsafe_allow_html=True)
-
-            st.markdown(f'<div style="font-size:0.72rem;color:#6B7280;margin:10px 0 2px;">'
-                        f'Last close ₹{_last:,.2f} · signal from the pooled Nifty-50 model (verdict <b style="color:{_vc};">{res.verdict}</b> universe-wide). '
-                        f'② is a Monte-Carlo range anchored to analyst targets. Per-stock edge is weaker than the pooled model — use the ranking, not one name in isolation.</div>',
-                        unsafe_allow_html=True)
-
-            # long-term forecast chart
+        h1, h2, h3 = st.columns(3)
+        with h1:
+            st.markdown(f"""<div class="gw-card" style="padding:18px 20px;border:1.5px solid {_sig_c}66;
+                 background:radial-gradient(320px 120px at 20% 0%,{_sig_c}1F,transparent 70%),#FFFFFF;
+                 box-shadow:0 0 26px {_sig_c}22;height:100%;">
+                <div style="font-size:0.68rem;color:#6B7280;letter-spacing:1px;">① {res.horizon}-DAY DIRECTION · pooled model</div>
+                <div style="font-size:2.2rem;font-weight:800;color:{_sig_c};text-shadow:0 0 16px {_sig_c}55;margin:2px 0;">
+                    {'▲' if _sig=='UP' else '▼'} {_sig}</div>
+                <div style="font-size:0.82rem;color:#6B7280;">calibrated P(up)
+                    <b style="color:{_sig_c};">{_proba*100:.1f}%</b> · rank <b>{_bucket}</b></div>
+            </div>""", unsafe_allow_html=True)
+        with h2:
             if fc is not None:
-                st.markdown('<div class="gw-section-title" style="margin-top:14px;font-size:0.86rem;">🔮 Long-Term Price Forecast (1–4 mo)</div>', unsafe_allow_html=True)
-                _fd = pd.bdate_range(start=_fc_start, periods=len(fc.path_median))
-                _fi = [str(d.date()) for d in _fd]
-                figf = go.Figure()
-                figf.add_trace(go.Scatter(x=_fi, y=fc.path_p95, mode="lines", name="95th",
-                          line=dict(color="rgba(56,126,209,0.15)", width=1), showlegend=False))
-                figf.add_trace(go.Scatter(x=_fi, y=fc.path_p5, mode="lines", name="5th–95th",
-                          line=dict(color="rgba(56,126,209,0.15)", width=1), fill="tonexty",
-                          fillcolor="rgba(56,126,209,0.10)"))
-                figf.add_trace(go.Scatter(x=_fi, y=fc.path_p75, mode="lines",
-                          line=dict(color="rgba(76,166,76,0.2)", width=1), showlegend=False))
-                figf.add_trace(go.Scatter(x=_fi, y=fc.path_p25, mode="lines", name="25th–75th",
-                          line=dict(color="rgba(76,166,76,0.2)", width=1), fill="tonexty",
-                          fillcolor="rgba(76,166,76,0.12)"))
-                figf.add_trace(go.Scatter(x=_fi, y=fc.path_median, mode="lines", name="Median",
-                          line=dict(color=GW_GREEN, width=3)))
-                if fc.analyst_target:
-                    figf.add_trace(go.Scatter(x=[_fi[-1]], y=[fc.analyst_target], mode="markers",
-                              name="Analyst target", marker=dict(color="#F59E0B", size=10, symbol="star")))
-                groww_fig(figf, 340, f"{pick} — {fc.months[-1]}-month projection")
-                st.plotly_chart(figf, use_container_width=True)
-                _rows = [{"Horizon": f"{mm} mo", "Median": f"₹{fc.median[mm]:,.0f}",
-                          "Upside": f"{fc.upside[mm]:+.1f}%",
-                          "50% range": f"₹{fc.p25[mm]:,.0f}–{fc.p75[mm]:,.0f}"} for mm in fc.months]
-                st.dataframe(pd.DataFrame(_rows).set_index("Horizon"), use_container_width=True)
+                _mL = fc.months[-1]; _up = fc.upside[_mL]
+                _uc = GW_GREEN if _up > 0 else GW_RED
+                st.markdown(f"""<div class="gw-card" style="padding:18px 20px;border:1.5px solid {GW_PURPLE}55;
+                     box-shadow:0 0 22px {GW_PURPLE}1F;height:100%;">
+                    <div style="font-size:0.68rem;color:#6B7280;letter-spacing:1px;">② FUTURE PRICE · {_mL} months</div>
+                    <div style="font-size:2.2rem;font-weight:800;color:{GW_NAVY};margin:2px 0;">₹{fc.median[_mL]:,.0f}</div>
+                    <div style="font-size:0.82rem;color:#6B7280;">median · <b style="color:{_uc};">{_up:+.1f}%</b>
+                        · range ₹{fc.p25[_mL]:,.0f}–{fc.p75[_mL]:,.0f}</div>
+                </div>""", unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="gw-card" style="height:100%;">Forecast unavailable</div>', unsafe_allow_html=True)
+        with h3:
+            _pauc = ps["auc"] if ps else 0.5
+            _pc = GW_GREEN if _pauc > 0.53 else ("#F59E0B" if _pauc > 0.5 else GW_RED)
+            st.markdown(f"""<div class="gw-card" style="padding:18px 20px;border:1.5px solid {_pc}55;
+                 box-shadow:0 0 22px {_pc}1F;height:100%;">
+                <div style="font-size:0.68rem;color:#6B7280;letter-spacing:1px;">③ THIS STOCK · out-of-sample</div>
+                <div style="font-size:2.2rem;font-weight:800;color:{_pc};margin:2px 0;">
+                    {_pauc:.3f}</div>
+                <div style="font-size:0.82rem;color:#6B7280;">ROC-AUC · hit {ps['hit']:.0f}%
+                    · {ps['n'] if ps else 0} OOS preds</div>
+            </div>""", unsafe_allow_html=True)
 
-            # live context
-            _ctx_bias = float(ctx.get("bias", 0.0))
-            _ctx_l = ctx.get("label", "Neutral")
-            _ctx_c = GW_GREEN if _ctx_bias > 0.15 else GW_RED if _ctx_bias < -0.15 else "#F59E0B"
-            _an = ctx.get("analyst", {}) or {}; _scr = ctx.get("screener", {}) or {}; _ne = ctx.get("news", {}) or {}
-            st.markdown(f'<div class="gw-section-title" style="margin-top:12px;font-size:0.86rem;">🌐 Live Context '
-                        f'<span style="font-size:0.7rem;color:#6B7280;font-weight:400;">not backtested — {_ctx_l} ({_ctx_bias:+.2f})</span></div>', unsafe_allow_html=True)
-            cA, cB, cC = st.columns(3)
-            def _g(v, s=""):
-                return f"{v:g}{s}" if isinstance(v, (int, float)) else "—"
-            _up = _an.get("target_upside")
-            cA.markdown(f"""<div class="gw-card"><div class="gw-stat-label">FUNDAMENTALS</div>
-                <div style="font-size:0.82rem;color:#4B5563;margin-top:6px;">P/E {_g(_scr.get('pe'))} · ROCE {_g(_scr.get('roce'),'%')} · ROE {_g(_scr.get('roe'),'%')}</div></div>""", unsafe_allow_html=True)
-            cB.markdown(f"""<div class="gw-card"><div class="gw-stat-label">ANALYSTS</div>
-                <div style="font-size:0.82rem;color:#4B5563;margin-top:6px;">{_an.get('recommendation') or '—'} · target upside {f'{_up:+.1f}%' if _up is not None else '—'}</div></div>""", unsafe_allow_html=True)
-            cC.markdown(f"""<div class="gw-card"><div class="gw-stat-label">NEWS SENTIMENT</div>
-                <div style="font-size:0.82rem;color:#4B5563;margin-top:6px;">{_ne.get('label','—')} ({_ne.get('score',0):+.2f}) · {_ne.get('n',0)} headlines</div></div>""", unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:0.72rem;color:#6B7280;margin:10px 0 2px;">'
+                    f'Last close ₹{_last:,.2f} · signal from the pooled Nifty-50 model (verdict <b style="color:{_vc};">{res.verdict}</b> universe-wide). '
+                    f'② is a Monte-Carlo range anchored to analyst targets. Per-stock edge is weaker than the pooled model — use the ranking, not one name in isolation.</div>',
+                    unsafe_allow_html=True)
+
+        # long-term forecast chart
+        if fc is not None:
+            st.markdown('<div class="gw-section-title" style="margin-top:14px;font-size:0.86rem;">🔮 Long-Term Price Forecast (1–4 mo)</div>', unsafe_allow_html=True)
+            _fd = pd.bdate_range(start=_fc_start, periods=len(fc.path_median))
+            _fi = [str(d.date()) for d in _fd]
+            figf = go.Figure()
+            figf.add_trace(go.Scatter(x=_fi, y=fc.path_p95, mode="lines", name="95th",
+                      line=dict(color="rgba(56,126,209,0.15)", width=1), showlegend=False))
+            figf.add_trace(go.Scatter(x=_fi, y=fc.path_p5, mode="lines", name="5th–95th",
+                      line=dict(color="rgba(56,126,209,0.15)", width=1), fill="tonexty",
+                      fillcolor="rgba(56,126,209,0.10)"))
+            figf.add_trace(go.Scatter(x=_fi, y=fc.path_p75, mode="lines",
+                      line=dict(color="rgba(76,166,76,0.2)", width=1), showlegend=False))
+            figf.add_trace(go.Scatter(x=_fi, y=fc.path_p25, mode="lines", name="25th–75th",
+                      line=dict(color="rgba(76,166,76,0.2)", width=1), fill="tonexty",
+                      fillcolor="rgba(76,166,76,0.12)"))
+            figf.add_trace(go.Scatter(x=_fi, y=fc.path_median, mode="lines", name="Median",
+                      line=dict(color=GW_GREEN, width=3)))
+            if fc.analyst_target:
+                figf.add_trace(go.Scatter(x=[_fi[-1]], y=[fc.analyst_target], mode="markers",
+                          name="Analyst target", marker=dict(color="#F59E0B", size=10, symbol="star")))
+            groww_fig(figf, 340, f"{pick} — {fc.months[-1]}-month projection")
+            st.plotly_chart(figf, use_container_width=True)
+            _rows = [{"Horizon": f"{mm} mo", "Median": f"₹{fc.median[mm]:,.0f}",
+                      "Upside": f"{fc.upside[mm]:+.1f}%",
+                      "50% range": f"₹{fc.p25[mm]:,.0f}–{fc.p75[mm]:,.0f}"} for mm in fc.months]
+            st.dataframe(pd.DataFrame(_rows).set_index("Horizon"), use_container_width=True)
+
+        # live context
+        _ctx_bias = float(ctx.get("bias", 0.0))
+        _ctx_l = ctx.get("label", "Neutral")
+        _ctx_c = GW_GREEN if _ctx_bias > 0.15 else GW_RED if _ctx_bias < -0.15 else "#F59E0B"
+        _an = ctx.get("analyst", {}) or {}; _scr = ctx.get("screener", {}) or {}; _ne = ctx.get("news", {}) or {}
+        st.markdown(f'<div class="gw-section-title" style="margin-top:12px;font-size:0.86rem;">🌐 Live Context '
+                    f'<span style="font-size:0.7rem;color:#6B7280;font-weight:400;">not backtested — {_ctx_l} ({_ctx_bias:+.2f})</span></div>', unsafe_allow_html=True)
+        cA, cB, cC = st.columns(3)
+        def _g(v, s=""):
+            return f"{v:g}{s}" if isinstance(v, (int, float)) else "—"
+        _up = _an.get("target_upside")
+        cA.markdown(f"""<div class="gw-card"><div class="gw-stat-label">FUNDAMENTALS</div>
+            <div style="font-size:0.82rem;color:#4B5563;margin-top:6px;">P/E {_g(_scr.get('pe'))} · ROCE {_g(_scr.get('roce'),'%')} · ROE {_g(_scr.get('roe'),'%')}</div></div>""", unsafe_allow_html=True)
+        cB.markdown(f"""<div class="gw-card"><div class="gw-stat-label">ANALYSTS</div>
+            <div style="font-size:0.82rem;color:#4B5563;margin-top:6px;">{_an.get('recommendation') or '—'} · target upside {f'{_up:+.1f}%' if _up is not None else '—'}</div></div>""", unsafe_allow_html=True)
+        cC.markdown(f"""<div class="gw-card"><div class="gw-stat-label">NEWS SENTIMENT</div>
+            <div style="font-size:0.82rem;color:#4B5563;margin-top:6px;">{_ne.get('label','—')} ({_ne.get('score',0):+.2f}) · {_ne.get('n',0)} headlines</div></div>""", unsafe_allow_html=True)
     else:
         st.markdown("""
         <div class="gw-card" style="text-align:center;padding:32px;">
